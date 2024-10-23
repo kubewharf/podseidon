@@ -1,0 +1,34 @@
+apiVersion: config.kwok.x-k8s.io/v1alpha1
+kind: KwokConfiguration
+options:
+---
+apiVersion: config.kwok.x-k8s.io/v1alpha1
+kind: KwokctlConfiguration
+componentsPatches:
+  - name: kube-apiserver
+    extraArgs:
+      - key: audit-webhook-config-file
+        value: /etc/test-assets/audit-kubeconfig-core.yaml
+      - key: audit-webhook-mode
+        value: batch
+      - key: audit-webhook-batch-max-wait
+        value: 2s
+      - key: audit-policy-file
+        value: /etc/test-assets/audit-policy.yaml
+      - key: audit-log-path
+        value: /var/log/k8s-audit/core
+    extraVolumes:
+      - name: audit-config
+        readOnly: true
+        hostPath: /etc/test-assets
+        mountPath: /etc/test-assets
+        type: Directory
+      - name: audit-log
+        readOnly: false
+        hostPath: /var/log/k8s-audit
+        mountPath: /var/log/k8s-audit
+        type: File
+  - name: kube-controller-manager
+    extraArgs:
+      - key: controllers
+        value: "-deployment-controller"

@@ -1,0 +1,66 @@
+{{/* vim: set filetype=gotmpl : */}}
+
+{{- /*
+Infer the RBAC name prefix for this release.
+  */}}
+{{- define "podseidon.boilerplate.rbac-prefix.string"}}
+{{- if .main.Values.rbacPrefix | ne ""}}
+{{- .main.Values.rbacPrefix}}
+{{- else}}
+{{- .main.Release.Name}}
+{{- end}}
+{{- end}}
+
+{{- /*
+Generate ServiceAccount name for a component.
+  */}}
+{{- define "podseidon.boilerplate.rbac-name.string"}}
+{{- printf "%s-%s" (include "podseidon.boilerplate.rbac-prefix.string" .) .component}}
+{{- end}}
+
+{{- /*
+Generate RBAC objects.
+Additional parameters:
+  .rules: array of ClusterRole rules
+  */}}
+{{- define "podseidon.boilerplate.rbac.obj"}}
+---
+{{include "podseidon.boilerplate.rbac.service-account.yaml" . | fromYaml | toYaml}}
+---
+{{include "podseidon.boilerplate.rbac.cluster-role-binding.yaml" . | fromYaml | toYaml}}
+---
+{{include "podseidon.boilerplate.rbac.cluster-role.yaml" . | fromYaml | toYaml}}
+{{- end}}
+
+{{- define "podseidon.boilerplate.rbac.service-account.yaml"}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{include "podseidon.boilerplate.rbac-name.string" . | toJson}}
+  labels: {{include "podseidon.boilerplate.labels.json" .}}
+{{- end}}
+
+{{- define "podseidon.boilerplate.rbac.cluster-role-binding.yaml"}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{include "podseidon.boilerplate.rbac-name.string" . | toJson}}
+  labels: {{include "podseidon.boilerplate.labels.json" .}}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{include "podseidon.boilerplate.rbac-name.string" . | toJson}}
+subjects:
+  - kind: ServiceAccount
+    name: {{include "podseidon.boilerplate.rbac-name.string" . | toJson}}
+    namespace: {{toJson .main.Release.Namespace}}
+{{- end}}
+
+{{- define "podseidon.boilerplate.rbac.cluster-role.yaml"}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{include "podseidon.boilerplate.rbac-name.string" . | toJson}}
+  labels: {{include "podseidon.boilerplate.labels.json" .}}
+{{dict "rules" .rules | toYaml}}
+{{- end}}

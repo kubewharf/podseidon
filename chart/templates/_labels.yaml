@@ -1,0 +1,39 @@
+{{/* vim: set filetype=gotmpl : */}}
+
+{{- /*
+Generic labels for an object associated with a component.
+  */}}
+{{- define "podseidon.boilerplate.labels.json"}}
+{{- include "podseidon.boilerplate.labels.yaml" . | fromYaml | toJson}}
+{{- end}}
+
+{{- /*
+Generic labels for an object associated with a component.
+  */}}
+{{- define "podseidon.boilerplate.labels.yaml"}}
+app.kubernetes.io/name: {{include "podseidon.boilerplate.name-label.string" . | toJson}}
+app.kubernetes.io/instance: {{include "podseidon.boilerplate.instance-label.string" . | toJson}}
+app.kubernetes.io/component: {{toJson .component}}
+podseidon.kubewharf.io/release-id: {{include "podseidon.boilerplate.release-id-label.string" . | toJson}}
+{{- end}}
+
+{{- /*
+Label selector for pods associated with a component.
+  */}}
+{{- define "podseidon.boilerplate.label-selector.yaml"}}
+app.kubernetes.io/name: {{include "podseidon.boilerplate.name-label.string" . | toJson}}
+app.kubernetes.io/instance: {{include "podseidon.boilerplate.instance-label.string" . | toJson}}
+app.kubernetes.io/component: {{toJson .component}}
+{{- end}}
+
+{{- define "podseidon.boilerplate.name-label.string"}}
+{{- .main.Values.rbacPrefix | default "podseidon"}}
+{{- end}}
+
+{{- define "podseidon.boilerplate.instance-label.string"}}
+{{- .main.Release.Name}}
+{{- end}}
+
+{{- define "podseidon.boilerplate.release-id-label.string"}}
+{{- printf "%s.%s" .main.Release.Namespace .main.Release.Name}}
+{{- end}}

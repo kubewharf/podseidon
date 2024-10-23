@@ -1,0 +1,6 @@
+{
+    "CN": "podseidon-webhook",
+    "hosts": ["podseidon-webhook"],
+    "key": {"algo": "rsa", "size": 4096},
+    "names": [{"C": "C", "ST": "ST", "L": "L", "O": "O", "OU": "OU"}]
+}

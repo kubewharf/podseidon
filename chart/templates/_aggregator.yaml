@@ -1,0 +1,68 @@
+{{/* vim: set filetype=gotmpl : */}}
+
+{{- define "podseidon.aggregator.rbac-rules.yaml-array"}}
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "watch", "create", "update", "patch"]
+{{- if .main.Values.release.core}}
+- apiGroups: ["podseidon.kubewharf.io"]
+  resources: ["podprotectors"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["podseidon.kubewharf.io"]
+  resources: ["podprotectors/status"]
+  verbs: ["update"]
+{{- end}}
+{{- if .main.Values.release.worker}}
+{{- if .generic.leaderElection.enable}}
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "delete"]
+{{- end}}
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+{{- end}}
+{{- end}}
+
+{{- define "podseidon.aggregator.volumes.yaml"}}
+{{dict
+    "config" .main.Values.aggregator.coreCluster
+    "volumeName" (printf "%s-aggregator-core-cluster" .main.Release.Name)
+    "argPrefix" "core"
+  | include "podseidon.kubeconfig.volumes.yaml"}}
+{{dict
+    "config" .main.Values.aggregator.workerCluster
+    "volumeName" (printf "%s-aggregator-worker-cluster" .main.Release.Name)
+    "argPrefix" "worker"
+  | include "podseidon.kubeconfig.volumes.yaml"}}
+{{- end}}
+
+{{- define "podseidon.aggregator.args.yaml"}}
+{{include "podseidon.args.leader-election.yaml" .}}
+{{include "podseidon.args.default-admission-history-config.yaml" .main.Values.common.defaultAdmissionHistoryConfig}}
+{{include "podseidon.args.logging.yaml" .}}
+{{include "podseidon.args.debug.yaml" .}}
+{{dict
+    "config" .main.Values.aggregator.coreCluster
+    "volumeName" (printf "%s-aggregator-core-cluster" .main.Release.Name)
+    "argPrefix" "core"
+  | deepCopy | merge (deepCopy .) | include "podseidon.kubeconfig.args.yaml"}}
+{{dict
+    "config" .main.Values.aggregator.workerCluster
+    "volumeName" (printf "%s-aggregator-worker-cluster" .main.Release.Name)
+    "argPrefix" "worker"
+  | deepCopy | merge (deepCopy .) | include "podseidon.kubeconfig.args.yaml"}}
+aggregator-worker-concurrency: {{toJson .main.Values.aggregator.workerCount}}
+aggregator-cell-id: {{toJson .main.Values.release.workerCellId}}
+aggregator-pod-label-selector: {{toJson .main.Values.aggregator.podLabelSelector}}
+aggregator-informer-synctime-algorithm: {{toJson .main.Values.aggregator.syncTimeAlgorithm}}
+{{- end}}
+
+{{- define "podseidon.aggregator.env.yaml"}}
+{{- end}}
+
+{{- define "podseidon.aggregator.ports.yaml"}}
+- pprof: 6060
+- healthz: 8081
+- metrics: 9090
+{{- end}}

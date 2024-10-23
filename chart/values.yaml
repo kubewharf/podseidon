@@ -1,0 +1,205 @@
+# This chart contains integrated templates for podseidon deployment.
+# In multi-cluster scenarios,
+# it may be desirable to deploy multiple releases of this chart
+# for each component and cluster separately.
+
+release:
+  core: true # treat the current release cluster as the core cluster.
+  worker: true # treat the current release cluster as a worker cluster.
+
+  # The cell ID of the worker cluster, in case there are multiple worker clusters for the same core cluster.
+  # Must be a valid path component name, i.e. cannot contain slashes.
+  # Must not be changed once assigned; the value will be persisted in PodProtector objects.
+  workerCellId: default
+
+rbacPrefix: "" # Use release name as rbac prefix by default
+
+generator:
+  replicas: 3
+  minReadySeconds: 60
+  deployStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 2
+      maxSurge: 0
+  resources: {} # {limits: {cpu: 100m, memory: 128Mi}, requests: {cpu: 100m, memory: 128Mi}}
+  podSecurityContext: {}
+  containerSecurityContext: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  readiness:
+    failureThreshold: 1
+    successThreshold: 1
+    periodSeconds: 30
+    timeoutSeconds: 10
+    initialDelaySeconds: 15
+
+  leaderElection:
+    enable: true
+    namespace: default
+    name: podseidon-generator
+    leaseDuration: 15s
+    renewDeadline: 10s
+    retryPeriod: 2s
+
+  logging: &logging
+    verbosity: 4
+    logToFile: ~
+    logToDir: ~
+
+  debug: &debug
+    pprofEnabled: true
+    mutexProfile: 0 # enable mutex pprof for 1/mutexProfile contention events
+    blockProfile: 0 # enable block pprof at at 1/blockProfile blocking events
+
+  coreCluster: &cluster
+    source: # Each cluster source is either inCluster, literal or fromSecret
+      inCluster:
+        masterUrl: "" # optional alternative apiserver URL
+      # literal:
+      #   config:
+      #     apiVersion: v1
+      #     kind: Config
+      #     ...
+      #   masterUrl: ""
+      # fromSecret:
+      #   secretName: "secret-name"
+      #   subPath: secretKey
+      #   masterUrl: ""
+
+    impersonate: # Impersonate as another user using the kubeconfig from source
+      username: ""
+      uid: ""
+      userGroups: []
+
+    qps: 5 # Maximum client QPS for each clientset
+    burst: 10 # Maximum client burst for each clientset
+    targetNamespace: "" # Restrict controller to a single namespace; leave empty to handle all namespaces
+
+  workerCount: 3
+
+  protectedSelector: # Only objects matching the selector have a generated protector.
+    deployments.apps: 'podseidon.kubewharf.io/protect=true'
+
+aggregator:
+  replicas: 3
+  minReadySeconds: 60
+  deployStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 2
+      maxSurge: 0
+  resources: {} # {limits: {cpu: 100m, memory: 128Mi}, requests: {cpu: 100m, memory: 128Mi}}
+  podSecurityContext: {}
+  containerSecurityContext: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  readiness:
+    failureThreshold: 1
+    successThreshold: 1
+    periodSeconds: 30
+    timeoutSeconds: 10
+    initialDelaySeconds: 5
+
+  leaderElection:
+    enable: true
+    namespace: default
+    name: podseidon-aggregator
+    leaseDuration: 15s
+    renewDeadline: 10s
+    retryPeriod: 2s
+
+  logging: *logging
+  debug: *debug
+
+  coreCluster: *cluster
+  workerCluster: *cluster
+
+  workerCount: 3
+
+  podLabelSelector: "" # a selector that matches all pods in this cell to optimize informer memory usage
+
+  syncTimeAlgorithm: clock # "clock" to use informer event time, "status" to use last inferred timestamp
+
+webhook:
+  replicas: 3
+  minReadySeconds: 60
+  deployStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  resources: {} # {limits: {cpu: 100m, memory: 128Mi}, requests: {cpu: 100m, memory: 128Mi}}
+  podSecurityContext: {}
+  containerSecurityContext: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  readiness:
+    failureThreshold: 1
+    successThreshold: 1
+    periodSeconds: 30
+    timeoutSeconds: 10
+    initialDelaySeconds: 15
+
+  logging: *logging
+  debug: *debug
+
+  coreCluster: *cluster
+
+  coldStartDelay: "0" # if a PodProtector has not been updated for a long time, the first update can be delayed by this period.
+  retryBackoff: # if a PodProtector update fails due to concurrent update from another process, perform a retry after Uniform(base, base+jitter).
+    base: 100ms
+    jitter: 100ms
+  dryRun: false # If set to true, the webhook still updates PodProtector normally, but pod deletions are never rejected.
+
+  pathPrefix: "" # Mandatory path prefix in webhook requests, e.g. `/podseidon`.
+  # If host is nonempty, apiserver will use this path to access webhook instances instead of Kubernetes service discovery.
+  host: "" # https://example.net:8843/path
+  tls:
+    # If false, `host` is verified using system CA roots, and webhook server only exposes an HTTP server.
+    # This is not allowed unless you have a custom HTTPS proxy at `host` that proxies to the HTTP server.
+    custom: true
+
+    # Paste your own certificate here, e.g.:
+    # openssl req -x509 -newkey rsa:1024 -keyout webhook.key -out webhook.cert -sha256 -days DAYS -nodes -subj '/CN=CN' -addext 'subjectAltName=DNS:*.YOUR_NAMESPACE.svc'
+    cert: |
+      -----BEGIN CERTIFICATE-----
+      # ...
+      -----END CERTIFICATE-----
+    key: |
+      -----BEGIN PRIVATE KEY-----
+      # ...
+      -----END PRIVATE KEY-----
+
+  failurePolicy: Fail # Set to Ignore to allow pod deletion if the webhook call fails due to transport level errors.
+  timeoutSeconds: 10 # Number of seconds allowed for webhook to respond to apiserver.
+  objectSelector: ~ # A LabelSelector (matchLabels + matchExpressions) for pods that are intercepted by this webhook.
+  namespaceSelector: ~ # A LabelSelector (matchLabels + matchExpressions) for namespaces in which pods are intercepted by this webhook.
+  matchConditions: ~ # Kubernetes v1.30+: CEL expressions to select which pod deletion requests are intercepted this webhook.
+
+  selfProtection: false # Protect podseidon pods with the webhook as well. This is not recommended as it may impair self-healing due to cyclic dependency.
+
+common:
+  image:
+    repository: ghcr.io/kubewharf/podseidon
+    pullPolicy: Always
+    tag: ~ # defaults to AppVersion
+    pullSecrets: []
+
+    generator: # overrides .image
+      repository: ghcr.io/kubewharf/podseidon-generator
+    aggregator: # overrides .image
+      repository: ghcr.io/kubewharf/podseidon-aggregator
+    webhook: # overrides .image
+      repository: ghcr.io/kubewharf/podseidon-webhook
+
+  defaultAdmissionHistoryConfig: # Default values for .spec.admissionHistoryConfig
+    # Maximum number of lagging entries allowed in a PodProtector before reconciled by aggregator.
+    maxConcurrentLag: 0
+    # Maximum number of named lagging entries allowed in a PodProtector before compacted into the same bucket.
+    compactThreshold: 100
+    # Minimum interval between multiple aggregator reconciliations of a PodProtector.
+    aggregationRate: 1s

@@ -1,0 +1,17 @@
+{{/* vim: set filetype=gotmpl : */}}
+
+{{- $ctx := dict
+    "main" .
+    "component" "generator"
+    "generic" .Values.generator
+}}
+{{- dict
+    "deployedCluster" "core"
+    "binary" "/usr/local/bin/podseidon-generator"
+    "args" (include "podseidon.generator.args.yaml" $ctx | fromYaml)
+    "env" (dict)
+    "volumes" (include "podseidon.generator.volumes.yaml" $ctx | fromYaml)
+    "ports" (include "podseidon.generator.ports.yaml" $ctx | fromYamlArray)
+    "rbacRules" (include "podseidon.generator.rbac-rules.yaml-array" $ctx | fromYamlArray)
+    "clusters" (list "core")
+  | deepCopy | merge (deepCopy $ctx) | include "podseidon.boilerplate.entrypoint.obj"}}

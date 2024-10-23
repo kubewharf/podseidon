@@ -1,0 +1,58 @@
+{{/* vim: set filetype=gotmpl : */}}
+
+{{- define "podseidon.generator.rbac-rules.yaml-array"}}
+{{- if .main.Values.release.core}}
+{{- if .generic.leaderElection.enable}}
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "delete"]
+{{- end}}
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "watch", "create", "update", "patch"]
+- apiGroups: ["podseidon.kubewharf.io"]
+  resources: ["podprotectors"]
+  verbs: ["get", "list", "watch", "create", "update", "delete"]
+- apiGroups: ["podseidon.kubewharf.io"]
+  resources: ["podprotectors/status"]
+  verbs: ["update"] # used for status cell cleanup
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "update"]
+{{- end}}
+{{- end}}
+
+{{- define "podseidon.generator.volumes.yaml"}}
+{{dict
+    "config" .main.Values.generator.coreCluster
+    "volumeName" (printf "%s-generator-core-cluster" .main.Release.Name)
+    "argPrefix" "core"
+  | include "podseidon.kubeconfig.volumes.yaml"}}
+{{- end}}
+
+{{- define "podseidon.generator.args.yaml"}}
+{{include "podseidon.args.leader-election.yaml" .}}
+{{include "podseidon.args.default-admission-history-config.yaml" .main.Values.common.defaultAdmissionHistoryConfig}}
+{{include "podseidon.args.logging.yaml" .}}
+{{include "podseidon.args.debug.yaml" .}}
+{{dict
+    "config" .main.Values.generator.coreCluster
+    "volumeName" (printf "%s-generator-core-cluster" .main.Release.Name)
+    "argPrefix" "core"
+  | deepCopy | merge (deepCopy .) | include "podseidon.kubeconfig.args.yaml"}}
+generator-worker-concurrency: {{toJson .main.Values.generator.workerCount}}
+
+{{- $selector := get .main.Values.generator.protectedSelector "deployments.apps"}}
+{{- if empty $selector | not}}
+deployment-plugin-protection-selector: {{toJson $selector}}
+{{- end}}
+{{- end}}
+
+{{- define "podseidon.generator.env.yaml"}}
+{{- end}}
+
+{{- define "podseidon.generator.ports.yaml"}}
+- pprof: 6060
+- healthz: 8081
+- metrics: 9090
+{{- end}}

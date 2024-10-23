@@ -1,0 +1,144 @@
+{{/* vim: set filetype=gotmpl : */}}
+
+{{- define "podseidon.webhook.rbac-rules.yaml-array"}}
+{{- if .main.Values.release.core}}
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "watch", "create", "update", "patch"]
+- apiGroups: ["podseidon.kubewharf.io"]
+  resources: ["podprotectors"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["podseidon.kubewharf.io"]
+  resources: ["podprotectors/status"]
+  verbs: ["update"]
+{{- end}}
+{{- end}}
+
+{{- define "podseidon.webhook.volumes.yaml"}}
+{{dict
+    "config" .main.Values.webhook.coreCluster
+    "volumeName" (printf "%s-webhook-core-cluster" .main.Release.Name)
+    "argPrefix" "core"
+  | include "podseidon.kubeconfig.volumes.yaml"}}
+tls-bundle:
+  mountPath: "/mnt/webhook-tls-bundle"
+  readOnly: true
+  source:
+    secret:
+      secretName: {{printf "%s-webhook-tls-bundle" .main.Release.Name | toJson}}
+{{- end}}
+
+{{- define "podseidon.webhook.args.yaml"}}
+{{include "podseidon.args.default-admission-history-config.yaml" .main.Values.common.defaultAdmissionHistoryConfig}}
+{{include "podseidon.args.logging.yaml" .}}
+{{include "podseidon.args.debug.yaml" .}}
+{{dict
+    "config" .main.Values.webhook.coreCluster
+    "volumeName" (printf "%s-webhook-core-cluster" .main.Release.Name)
+    "argPrefix" "core"
+  | deepCopy | merge (deepCopy .) | include "podseidon.kubeconfig.args.yaml"}}
+
+{{- if .main.Values.webhook.tls.custom}}
+webhook-enable: false
+webhook-https-enable: true
+webhook-https-bind-addr: "::"
+webhook-https-key-file: "/mnt/webhook-tls-bundle/key"
+webhook-https-cert-file: "/mnt/webhook-tls-bundle/cert"
+{{- else}}
+webhook-bind-addr: "::"
+{{- end}}
+
+webhook-path-prefix: {{toJson .main.Values.webhook.pathPrefix}}
+webhook-dry-run: {{toJson .main.Values.webhook.dryRun}}
+
+webhook-handler-cold-start-delay: {{toJson .main.Values.webhook.coldStartDelay}}
+webhook-handler-retry-backoff-base: {{toJson .main.Values.webhook.retryBackoff.base}}
+webhook-handler-retry-jitter: {{toJson .main.Values.webhook.retryBackoff.jitter}}
+{{- end}}
+
+{{- define "podseidon.webhook.env.yaml"}}
+{{- end}}
+
+{{- define "podseidon.webhook.ports.yaml"}}
+- webhook: 8080
+- pprof: 6060
+- healthz: 8081
+- metrics: 9090
+{{- end}}
+
+{{- define "podseidon.webhook.svc.yaml"}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{printf "%s-webhook" .main.Release.Name | toJson}}
+  labels: {{include "podseidon.boilerplate.labels.json" .}}
+spec:
+  ports:
+    - name: webhook
+      port: 8080
+      protocol: TCP
+  selector: {{include "podseidon.boilerplate.label-selector.yaml" . | fromYaml | toJson}}
+{{- end}}
+
+{{- define "podseidon.webhook.tls-secret.yaml"}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{printf "%s-webhook-tls-bundle" .main.Release.Name | toJson}}
+  labels: {{include "podseidon.boilerplate.labels.json" .}}
+data:
+  key: {{.main.Values.webhook.tls.key | b64enc | toJson}}
+  cert: {{.main.Values.webhook.tls.cert | b64enc | toJson}}
+{{- end}}
+
+{{- define "podseidon.webhook.vwc.yaml"}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: podseidon.kubewharf.io
+  labels: {{include "podseidon.boilerplate.labels.json" .}}
+webhooks:
+  - name: podseidon.kubewharf.io
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["pods"]
+        scope: Namespaced
+    clientConfig:
+      {{- if .main.Values.webhook.tls.custom}}
+      caBundle: {{.main.Values.webhook.tls.cert | b64enc | toJson}}
+      {{- end}}
+      {{- if .main.Values.webhook.host}}
+      url: {{toJson .main.Values.webhook.host}}
+      {{- else}}
+      service:
+        namespace: {{toJson .main.Release.Namespace}}
+        name: {{printf "%s-webhook" .main.Release.Name | toJson}}
+        path: {{printf "%s/%s" .main.Values.webhook.pathPrefix .main.Values.release.workerCellId | toJson}}
+        port: 8080
+      {{- end}}
+    admissionReviewVersions: ["v1"]
+    sideEffects: NoneOnDryRun
+    failurePolicy: {{toJson .main.Values.webhook.failurePolicy}}
+    timeoutSeconds: {{toJson .main.Values.webhook.timeoutSeconds}}
+    {{- if .main.Values.webhook.objectSelector | or (not .main.Values.webhook.selfProtection)}}
+    objectSelector: {{.main.Values.webhook.objectSelector | default dict | deepCopy |
+      merge (dict
+        "matchExpressions" (list
+          (dict
+            "key" "podseidon.kubewharf.io/release-id"
+            "operator" "NotIn"
+            "values" (list (include "podseidon.boilerplate.release-id-label.string" .))
+          )
+        )
+      ) |
+      toJson}}
+    {{- end}}
+    {{- if .main.Values.webhook.namespaceSelector}}
+    namespaceSelector: {{toJson .main.Values.webhook.namespaceSelector}}
+    {{- end}}
+    {{- if .main.Values.webhook.matchConditions}}
+    matchConditions: {{toJson .main.Values.webhook.matchConditions}}
+    {{- end}}
+{{- end}}

@@ -1,0 +1,17 @@
+{{/* vim: set filetype=gotmpl : */}}
+
+{{- $ctx := dict
+    "main" .
+    "component" "aggregator"
+    "generic" .Values.aggregator
+}}
+{{- dict
+    "deployedCluster" "core"
+    "binary" "/usr/local/bin/podseidon-aggregator"
+    "args" (include "podseidon.aggregator.args.yaml" $ctx | fromYaml)
+    "env" (dict)
+    "volumes" (include "podseidon.aggregator.volumes.yaml" $ctx | fromYaml)
+    "ports" (include "podseidon.aggregator.ports.yaml" $ctx | fromYamlArray)
+    "rbacRules" (include "podseidon.aggregator.rbac-rules.yaml-array" $ctx | fromYamlArray)
+    "clusters" (list "core")
+  | deepCopy | merge (deepCopy $ctx) | include "podseidon.boilerplate.entrypoint.obj"}}

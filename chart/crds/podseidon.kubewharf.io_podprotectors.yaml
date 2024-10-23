@@ -1,0 +1,305 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.2
+  name: podprotectors.podseidon.kubewharf.io
+spec:
+  group: podseidon.kubewharf.io
+  names:
+    kind: PodProtector
+    listKind: PodProtectorList
+    plural: podprotectors
+    shortNames:
+    - ppr
+    singular: podprotector
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.minAvailable
+      name: Required
+      type: string
+    - jsonPath: .status.summary.aggregatedAvailableReplicas
+      name: Aggregated
+      type: integer
+    - jsonPath: .status.summary.aggregatedAvailableReplicas
+      name: Estimated
+      type: integer
+    - jsonPath: .status.summary.maxLatencyMillis
+      name: Bucket lag
+      priority: 1
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              admissionHistoryConfig:
+                description: Tune parameters for Podseidon components for a specific
+                  object.
+                properties:
+                  aggregationRateMillis:
+                    description: Delay period between receiving pod event and aggregation.
+                    format: int32
+                    type: integer
+                  compactThreshold:
+                    description: Number of single-item buckets to retain before compacting
+                      to a single bucket.
+                    format: int32
+                    type: integer
+                  maxConcurrentLag:
+                    description: Maximum sum of AdmissionCount.Counter at any point.
+                    format: int32
+                    type: integer
+                type: object
+              aggregationSelector:
+                description: |-
+                  Selects pods to be counted for MinAvailable.
+                  Equal to Selector if unspecified.
+                  Must select a superset of Selector.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              minAvailable:
+                description: |-
+                  Minimum number of available pods to ensure.
+                  Available pods cannot be deleted if the total availability is less than or equal to this value.
+                format: int32
+                minimum: 0
+                type: integer
+              minReadySeconds:
+                description: Number of seconds for which a pod must maintain readiness
+                  before being considered available.
+                format: int32
+                type: integer
+              selector:
+                description: |-
+                  Selects pods to be protected by this object.
+                  Only matching pods will be prevented from deletion.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+            required:
+            - minAvailable
+            - minReadySeconds
+            - selector
+            type: object
+          status:
+            properties:
+              cells:
+                items:
+                  properties:
+                    admissionHistory:
+                      description: Admission history in this cell handled by webhooks.
+                      properties:
+                        buckets:
+                          items:
+                            description: Each bucket represents either one pod or
+                              the compacted set of old pods.
+                            properties:
+                              counter:
+                                description: Number of approved admission reviews
+                                  within this bucket, if this is a compacted bucket.
+                                format: int32
+                                type: integer
+                              endTime:
+                                description: End time of this bucket, if this is a
+                                  compacted bucket.
+                                format: date-time
+                                type: string
+                              podUID:
+                                description: The UID of the pod, if there is only
+                                  one pod in this bucket.
+                                type: string
+                              startTime:
+                                description: Start time of this bucket.
+                                format: date-time
+                                type: string
+                            required:
+                            - startTime
+                            type: object
+                          type: array
+                      type: object
+                    aggregation:
+                      description: The last aggregation data observed by the aggregator
+                        for this cell.
+                      properties:
+                        availableReplicas:
+                          description: Number of pods maintaining ready condition
+                            for more than MinReadySeconds when observed by aggregator.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        lastEventTime:
+                          description: Timestamp of the last event observed by the
+                            pod reflector of the aggregator when this snapshot was
+                            written.
+                          format: date-time
+                          type: string
+                        totalReplicas:
+                          description: Number of non-terminated pods as observed by
+                            aggregator.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      required:
+                      - availableReplicas
+                      - lastEventTime
+                      - totalReplicas
+                      type: object
+                    cellID:
+                      description: Identifies the group of pods managed by an aggregator
+                        instance.
+                      type: string
+                  required:
+                  - cellID
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - cellID
+                x-kubernetes-list-type: map
+              summary:
+                description: |-
+                  Summary written by status-updating clients for display only,
+                  indicating the overall status.
+                properties:
+                  aggregatedAvailableReplicas:
+                    description: |-
+                      Total number of available pods based on aggregation.
+                      Ready pods may not be shown as available if the aggregator is lagging behind.
+                    format: int32
+                    type: integer
+                  estimatedAvailableReplicas:
+                    description: Estimated number of available pods after deducting
+                      admission history.
+                    format: int32
+                    type: integer
+                  maxLatencyMillis:
+                    description: Number of milliseconds elapsed since last reflector
+                      event in the slowest cell with outstanding admission history.
+                    format: int64
+                    type: integer
+                  totalReplicas:
+                    description: Total number of running pods based on aggregation.
+                    format: int32
+                    type: integer
+                required:
+                - aggregatedAvailableReplicas
+                - estimatedAvailableReplicas
+                - totalReplicas
+                type: object
+            required:
+            - cells
+            - summary
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

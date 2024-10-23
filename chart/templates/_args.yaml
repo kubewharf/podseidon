@@ -1,0 +1,98 @@
+{{/* vim: set filetype=gotmpl : */}}
+
+{{- /*
+Args for a component.
+Additional parameters:
+  = boilerplate.entrypoint
+  */}}
+{{- define "podseidon.boilerplate.args.yaml-array"}}
+{{- range $k, $v := .args}}
+- {{printf "--%s=%s" $k (include "podseidon.helper.print-arg.string" $v) | toJson}}
+{{- end}}
+{{- end}}
+
+{{- /*
+Default config args for a component.
+  */}}
+{{- define "podseidon.args.default-admission-history-config.yaml"}}
+default-admission-history-config-max-concurrent-lag: {{.maxConcurrentLag | toJson}}
+default-admission-history-config-compact-threshold: {{.compactThreshold | toJson}}
+default-admission-history-config-aggregation-rate: {{.aggregationRate | toJson}}
+{{- end}}
+
+{{- /*
+Leader election args for a component.
+  */}}
+{{- define "podseidon.args.leader-election.yaml"}}
+{{- $config := .generic.leaderElection}}
+{{printf "%s-leader-elector-enable" .component | toJson}}: {{$config.enable | toJson}}
+{{- if $config.enable}}
+{{printf "%s-leader-elector-namespace" .component | toJson}}: {{$config.namespace | toJson}}
+{{printf "%s-leader-elector-name" .component | toJson}}: {{$config.name | toJson}}
+{{printf "%s-leader-elector-lease-duration" .component | toJson}}: {{$config.leaseDuration | toJson}}
+{{printf "%s-leader-elector-renew-deadline" .component | toJson}}: {{$config.renewDeadline | toJson}}
+{{printf "%s-leader-elector-retry-period" .component | toJson}}: {{$config.retryPeriod | toJson}}
+{{- end}}
+{{- end}}
+
+{{- /*
+Logging args for a component.
+  */}}
+{{- define "podseidon.args.logging.yaml"}}
+klog-v: {{toJson .generic.logging.verbosity}}
+{{- if .logToFile}}
+klog-log-file: {{toJson .generic.logging.logToFile}}
+{{- else if .logToDir}}
+klog-log-dir: {{toJson .generic.logging.logToDir}}
+{{- end}}
+{{- end}}
+
+{{- /*
+Debugging args for a component.
+  */}}
+{{- define "podseidon.args.debug.yaml"}}
+pprof-enable: {{toJson .generic.debug.pprofEnabled}}
+pprof-bind-addr: "::"
+pprof-mutex-profile: {{.generic.debug.mutexProfile | int64 | toJson}}
+pprof-block-profile: {{.generic.debug.blockProfile | int64 | toJson}}
+
+healthz-bind-addr: "::"
+{{- end}}
+
+{{- /*
+Converts a typed argument into a string understood by pflag.
+Parameters: no typical context, only exactly the value to be printed.
+  */}}
+{{- define "podseidon.helper.print-arg.string"}}
+{{- if . | typeIs "string"}}
+{{- .}}
+{{- else if . | typeIs "int64"}}
+{{- printf "%d" .}}
+{{- else if . | typeIs "float64"}}
+{{- printf "%g" .}}
+{{- else if . | typeIs "bool"}}
+{{- printf "%t" .}}
+{{- else if . | typeIs "[]interface {}"}}
+{{- include "podseidon.helper.print-arg-list.string" .}}
+{{- else if . | typeIs "map[string]interface {}"}}
+{{- include "podseidon.helper.print-arg-map.string" .}}
+{{- else}}
+{{- typeOf . | printf "unsupported argument type %q" | fail}}
+{{- end}}
+{{- end}}
+
+{{- define "podseidon.helper.print-arg-list.string"}}
+{{- range $index, $item := .}}
+{{- if ne 0 $index}},{{end}}
+{{- include "podseidon.helper.print-arg.string" $item}}
+{{- end}}
+{{- end}}
+
+{{- define "podseidon.helper.print-arg-map.string"}}
+{{- $first := true}}
+{{- range $key, $value := .}}
+{{- if not $first}},{{end}}
+{{- $first = false}}
+{{- $key}}={{include "podseidon.helper.print-arg.string" $value}}
+{{- end}}
+{{- end}}

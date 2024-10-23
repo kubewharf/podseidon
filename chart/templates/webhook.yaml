@@ -1,0 +1,32 @@
+{{/* vim: set filetype=gotmpl : */}}
+
+{{- $ctx := dict
+    "main" .
+    "component" "webhook"
+    "generic" .Values.webhook
+}}
+{{- dict
+    "deployedCluster" "core"
+    "binary" "/usr/local/bin/podseidon-webhook"
+    "args" (include "podseidon.webhook.args.yaml" $ctx | fromYaml)
+    "env" (dict)
+    "volumes" (include "podseidon.webhook.volumes.yaml" $ctx | fromYaml)
+    "ports" (include "podseidon.webhook.ports.yaml" $ctx | fromYamlArray)
+    "rbacRules" (include "podseidon.webhook.rbac-rules.yaml-array" $ctx | fromYamlArray)
+    "clusters" (list "core")
+  | deepCopy | merge (deepCopy $ctx) | include "podseidon.boilerplate.entrypoint.obj"}}
+
+{{- if .Values.release.core}}
+---
+{{- include "podseidon.webhook.svc.yaml" $ctx | fromYaml | toYaml}}
+
+{{- if .Values.webhook.tls.custom}}
+---
+{{- include "podseidon.webhook.tls-secret.yaml" $ctx | fromYaml | toYaml}}
+{{- end}}
+{{- end}}
+
+{{- if .Values.release.worker}}
+---
+{{- include "podseidon.webhook.vwc.yaml" $ctx | fromYaml | toYaml}}
+{{- end}}

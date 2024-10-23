@@ -1,0 +1,15 @@
+{
+  "webhook": {
+    "tls": {
+      "cert": "",
+      "key": ""
+    }
+  },
+  "common": {
+    "defaultAdmissionHistoryConfig": {
+      "maxConcurrentLag": 0,
+      "compactThreshold": 100,
+      "aggregationRate": "1s"
+    }
+  }
+}
