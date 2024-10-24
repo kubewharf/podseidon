@@ -123,17 +123,24 @@ webhooks:
     failurePolicy: {{toJson .main.Values.webhook.failurePolicy}}
     timeoutSeconds: {{toJson .main.Values.webhook.timeoutSeconds}}
     {{- if .main.Values.webhook.objectSelector | or (not .main.Values.webhook.selfProtection)}}
-    objectSelector: {{.main.Values.webhook.objectSelector | default dict | deepCopy |
-      merge (dict
-        "matchExpressions" (list
-          (dict
-            "key" "podseidon.kubewharf.io/release-id"
-            "operator" "NotIn"
-            "values" (list (include "podseidon.boilerplate.release-id-label.string" .))
-          )
-        )
-      ) |
-      toJson}}
+    {{- $objectSelector := .main.Values.webhook.objectSelector | default dict}}
+    objectSelector:
+      {{- if gt ($objectSelector.matchLabels | default dict | len) 0}}
+      matchLabels: {{toJson $objectSelector.matchLabels}}
+      {{- end}}
+
+      {{- if (not .main.Values.webhook.selfProtection) | or (gt ($objectSelector.matchExpressions | default list | len) 0)}}
+      matchExpressions:
+        {{- if (not .main.Values.webhook.selfProtection)}}
+        - key: podseidon.kubewharf.io/release-id
+          operator: NotIn
+          values:
+            - {{include "podseidon.boilerplate.release-id-label.string" . | toJson}}
+        {{- end}}
+        {{- range $objectSelector.matchExpressions}}
+        - {{toJson .}}
+        {{- end}}
+      {{- end}}
     {{- end}}
     {{- if .main.Values.webhook.namespaceSelector}}
     namespaceSelector: {{toJson .main.Values.webhook.namespaceSelector}}
