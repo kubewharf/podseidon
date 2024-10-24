@@ -110,6 +110,8 @@ func DeclareServer[Args any, Options any, Deps any, State any, Api any](
 
 				if state.httpServer != nil {
 					go func(server *http.Server) {
+						server.BaseContext = func(net.Listener) context.Context { return ctx }
+
 						if err := server.ListenAndServe(); err != nil &&
 							!errors.Is(err, http.ErrServerClosed) {
 							klog.FromContext(ctx).
@@ -120,6 +122,8 @@ func DeclareServer[Args any, Options any, Deps any, State any, Api any](
 
 				if state.httpsServer != nil {
 					go func(server *http.Server) {
+						server.BaseContext = func(net.Listener) context.Context { return ctx }
+
 						err := server.ListenAndServeTLS(*options.HttpsCert, *options.HttpsKey)
 						if err != nil && !errors.Is(err, http.ErrServerClosed) {
 							klog.FromContext(ctx).
