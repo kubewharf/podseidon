@@ -15,7 +15,6 @@
 package metrics
 
 import (
-	"context"
 	"flag"
 	"net/http"
 
@@ -41,7 +40,7 @@ var NewHttp = utilhttp.DeclareServer(
 			comp: component.DepPtr(requests, newRegistry()),
 		}
 	},
-	func(_ context.Context, _ HttpArgs, _ HttpOptions, deps httpDeps, mux *http.ServeMux) (*httpState, error) {
+	func(_ HttpArgs, _ HttpOptions, deps httpDeps, mux *http.ServeMux) (*httpState, error) {
 		//nolint:exhaustruct
 		mux.Handle("/", promhttp.HandlerFor(deps.comp.Get().Registry, promhttp.HandlerOpts{
 			Registry: deps.comp.Get().Registry,

@@ -73,24 +73,34 @@ type poolImpl[
 	handles *xsync.MapOf[Key, *keyHandle[Arg, Result]]
 }
 
+type PoolConfig[Key comparable, Arg any, Result any] struct {
+	createPool func(ctx context.Context) Pool[Key, Arg, Result]
+}
+
+func (config PoolConfig[Key, Arg, Result]) Create(ctx context.Context) Pool[Key, Arg, Result] {
+	return config.createPool(ctx)
+}
+
 // Constructs a new Pool.
 func NewPool[Key comparable, Arg any, Result any, AdapterT Adapter[Key, Arg, Result]](
-	ctx context.Context,
 	obs observer.Observer,
 	adapter AdapterT,
 	coldStartDelay, batchGoroutineIdleTimeout time.Duration,
-) Pool[Key, Arg, Result] {
-	batchCtx, batchCtxCancelFunc := context.WithCancel(ctx)
-
-	return &poolImpl[Key, Arg, Result, AdapterT, syncbarrier.Empty[Key]]{
-		observer:                  obs,
-		batchCtx:                  batchCtx,
-		batchCtxCancel:            batchCtxCancelFunc,
-		adapter:                   adapter,
-		syncBarrier:               syncbarrier.Empty[Key]{},
-		coldStartDelay:            coldStartDelay,
-		batchGoroutineIdleTimeout: batchGoroutineIdleTimeout,
-		handles:                   xsync.NewMapOf[Key, *keyHandle[Arg, Result]](),
+) PoolConfig[Key, Arg, Result] {
+	return PoolConfig[Key, Arg, Result]{
+		createPool: func(ctx context.Context) Pool[Key, Arg, Result] {
+			batchCtx, batchCtxCancel := context.WithCancel(ctx)
+			return &poolImpl[Key, Arg, Result, AdapterT, syncbarrier.Empty[Key]]{
+				observer:                  obs,
+				batchCtx:                  batchCtx,
+				batchCtxCancel:            batchCtxCancel,
+				adapter:                   adapter,
+				syncBarrier:               syncbarrier.Empty[Key]{},
+				coldStartDelay:            coldStartDelay,
+				batchGoroutineIdleTimeout: batchGoroutineIdleTimeout,
+				handles:                   xsync.NewMapOf[Key, *keyHandle[Arg, Result]](),
+			}
+		},
 	}
 }
 

@@ -15,7 +15,6 @@
 package server
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -67,14 +66,14 @@ var New = utilhttp.DeclareServer(
 			handler:  component.DepPtr(reqs, handler.New(handler.Args{})),
 		}
 	},
-	func(ctx context.Context, _ util.Empty, options Options, deps Deps, mux *http.ServeMux) (*State, error) {
+	func(_ util.Empty, options Options, deps Deps, mux *http.ServeMux) (*State, error) {
 		mux.HandleFunc(
 			fmt.Sprintf("POST %s/{cell}", *options.pathPrefix),
 			func(resp http.ResponseWriter, req *http.Request) {
 				cellId := req.PathValue("cell")
 
 				ctx, cancelFunc := deps.observer.Get().HttpRequest(
-					ctx,
+					req.Context(),
 					observer.Request{
 						Cell:       cellId,
 						RemoteAddr: req.RemoteAddr,

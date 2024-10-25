@@ -44,7 +44,7 @@ func DeclareServer[Args any, Options any, Deps any, State any, Api any](
 	defaultHttpPort, defaultHttpsPort uint16,
 	newOptions func(args Args, fs *flag.FlagSet) Options,
 	newDeps func(args Args, requests *component.DepRequests) Deps,
-	registerHandler func(ctx context.Context, args Args, options Options, deps Deps, mux *http.ServeMux) (*State, error),
+	registerHandler func(args Args, options Options, deps Deps, mux *http.ServeMux) (*State, error),
 	lifecycle component.Lifecycle[Args, Options, Deps, State],
 	api func(Args, Options, Deps, *State) Api,
 ) func(Args) component.Declared[Api] {
@@ -83,10 +83,10 @@ func DeclareServer[Args any, Options any, Deps any, State any, Api any](
 			}
 		},
 		newDeps,
-		func(ctx context.Context, args Args, options wrappedOptions[Options], deps Deps) (*wrappedState[State], error) {
+		func(_ context.Context, args Args, options wrappedOptions[Options], deps Deps) (*wrappedState[State], error) {
 			mux := http.NewServeMux()
 
-			innerState, err := registerHandler(ctx, args, options.inner, deps, mux)
+			innerState, err := registerHandler(args, options.inner, deps, mux)
 			if err != nil {
 				return nil, err
 			}

@@ -92,14 +92,15 @@ var New = component.Declare(
 			defaultConfig: component.DepPtr(requests, defaultconfig.New(util.Empty{})),
 		}
 	},
-	func(ctx context.Context, _ Args, options Options, deps Deps) (*State, error) {
+	func(_ context.Context, _ Args, options Options, deps Deps) (*State, error) {
 		client := deps.coreCluster.Get().PodseidonClientSet().PodseidonV1alpha1()
+
+		poolReader, poolWriter := util.NewLateInit[retrybatch.Pool[types.NamespacedName, BatchArg, pprutil.DisruptionResult]]()
 
 		return &State{
 			client:            client,
 			informerHasSynced: deps.pprInformer.Get().HasSynced,
-			pool: retrybatch.NewPool(
-				ctx,
+			poolConfig: retrybatch.NewPool(
 				deps.retrybatchObs.Get(),
 				PoolAdapter{
 					client:      client,
@@ -116,11 +117,16 @@ var New = component.Declare(
 				},
 				*options.ColdStartDelay, batchGoroutineIdleTimeout,
 			),
+			poolWriter: poolWriter,
+			poolReader: poolReader,
 		}, nil
 	},
 	component.Lifecycle[Args, Options, Deps, State]{
 		Start: func(ctx context.Context, _ *Args, _ *Options, _ *Deps, state *State) error {
-			state.pool.StartMonitor(ctx)
+			pool := state.poolConfig.Create(ctx)
+			pool.StartMonitor(ctx)
+
+			state.poolWriter(pool)
 
 			return nil
 		},
@@ -156,7 +162,9 @@ type State struct {
 	client            podseidonv1a1client.PodseidonV1alpha1Interface
 	informerHasSynced cache.InformerSynced
 
-	pool retrybatch.Pool[types.NamespacedName, BatchArg, pprutil.DisruptionResult]
+	poolConfig retrybatch.PoolConfig[types.NamespacedName, BatchArg, pprutil.DisruptionResult]
+	poolWriter util.LateInitWriter[retrybatch.Pool[types.NamespacedName, BatchArg, pprutil.DisruptionResult]]
+	poolReader util.LateInitReader[retrybatch.Pool[types.NamespacedName, BatchArg, pprutil.DisruptionResult]]
 }
 
 type Api struct {
@@ -331,7 +339,7 @@ func (api Api) determineRejection(
 	pod *corev1.Pod,
 	cellId string,
 ) HandleResult {
-	result, err := api.state.pool.Submit(ctx, pprRef, BatchArg{CellId: cellId, PodUid: pod.UID})
+	result, err := api.state.poolReader.Get().Submit(ctx, pprRef, BatchArg{CellId: cellId, PodUid: pod.UID})
 	if err != nil {
 		return HandleResult{
 			Status: observer.RequestStatusError,

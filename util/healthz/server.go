@@ -43,7 +43,7 @@ var NewServer = utilhttp.DeclareServer(
 			Observer: o11y.Request[observer.Observer](requests),
 		}
 	},
-	func(_ context.Context, args Args, _ Options, _ Deps, mux *http.ServeMux) (*State, error) {
+	func(args Args, _ Options, _ Deps, mux *http.ServeMux) (*State, error) {
 		mux.Handle("/readyz", http.StripPrefix("/readyz", args.Handler))
 		mux.Handle("/readyz/", http.StripPrefix("/readyz/", args.Handler))
 

@@ -15,7 +15,6 @@
 package pprof
 
 import (
-	"context"
 	"flag"
 	"net/http"
 	"net/http/pprof"
@@ -50,7 +49,7 @@ var New = utilhttp.DeclareServer(
 		}
 	},
 	func(util.Empty, *component.DepRequests) util.Empty { return util.Empty{} },
-	func(_ context.Context, _ util.Empty, options Options, _ util.Empty, mux *http.ServeMux) (*State, error) {
+	func(_ util.Empty, options Options, _ util.Empty, mux *http.ServeMux) (*State, error) {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)
 		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
