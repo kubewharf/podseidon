@@ -324,7 +324,8 @@ func (api Api) handlePodInPpr(
 }
 
 func isRelevantRequest(req *admissionv1.AdmissionRequest) bool {
-	return req.Operation == admissionv1.Delete && // TODO do we also handle CREATE /eviction?
+	return req != nil &&
+		req.Operation == admissionv1.Delete && // TODO do we also handle CREATE /eviction?
 		req.Resource == metav1.GroupVersionResource{
 			Group:    corev1.SchemeGroupVersion.Group,
 			Version:  corev1.SchemeGroupVersion.Version, // we required matchPolicy=Equivalent
