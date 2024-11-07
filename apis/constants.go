@@ -45,7 +45,7 @@ const PprAnnotationRemoveCellOnce = "podseidon.kubewharf.io/remove-cell-once"
 
 const (
 	// Indicates that the request went through a webhook dry-run.
-	AuditAnnotationDryRun = "podseidon.kubewharf.io/dry-run"
+	AuditAnnotationDryRun = "dry-run"
 	// Indicates the PodProtector object that denied the request.
-	AuditAnnotationRejectByPpr = "podseidon.kubewharf.io/reject-by-podprotector"
+	AuditAnnotationRejectByPpr = "reject-by-podprotector"
 )
