@@ -56,6 +56,19 @@ aggregator-worker-concurrency: {{toJson .main.Values.aggregator.workerCount}}
 aggregator-cell-id: {{toJson .main.Values.release.workerCellId}}
 aggregator-pod-label-selector: {{toJson .main.Values.aggregator.podLabelSelector}}
 aggregator-informer-synctime-algorithm: {{toJson .main.Values.aggregator.syncTimeAlgorithm}}
+
+{{- with .main.Values.aggregator.updateTrigger}}
+update-trigger-enable: {{toJson .enable}}
+{{- if .enable}}
+update-trigger-update-frequency: {{toJson .updateFrequency}}
+update-trigger-dummy-pod-name: {{toJson .dummyPod.name}}
+update-trigger-dummy-pod-namespace: {{toJson .dummyPod.namespace}}
+update-trigger-dummy-pod-labels: {{toJson .dummyPod.labels}}
+update-trigger-dummy-pod-annotations: {{toJson .dummyPod.annotations}}
+update-trigger-dummy-pod-image: {{toJson .dummyPod.image}}
+update-trigger-dummy-pod-scheduler: {{toJson .dummyPod.scheduler}}
+{{- end}}
+{{- end}}
 {{- end}}
 
 {{- define "podseidon.aggregator.env.yaml"}}

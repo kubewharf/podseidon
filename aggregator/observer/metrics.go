@@ -46,6 +46,11 @@ func ProvideMetrics() component.Declared[Observer] {
 
 			type reconcileStartTime struct{}
 
+			type updateTriggerTags struct {
+				Event string
+				Error string
+			}
+
 			reconcileHandle := metrics.Register(
 				deps.Registry(),
 				"aggregator_reconcile",
@@ -106,6 +111,14 @@ func ProvideMetrics() component.Declared[Observer] {
 				metrics.NewReflectTags[util.Empty](),
 			)
 
+			updateTriggerHandle := metrics.Register(
+				deps.Registry(),
+				"aggregator_update_trigger_spin",
+				"A spin of aggregator update-trigger controller",
+				metrics.IntCounter(),
+				metrics.NewReflectTags[updateTriggerTags](),
+			)
+
 			return Observer{
 				StartReconcile: func(ctx context.Context, _ StartReconcile) (context.Context, context.CancelFunc) {
 					ctx = context.WithValue(ctx, reconcileStartTime{}, time.Now())
@@ -163,6 +176,18 @@ func ProvideMetrics() component.Declared[Observer] {
 					if timeSinceLastDrain, present := arg.TimeSinceLastDrain.Get(); present {
 						nextEventPoolDrainPeriod.Emit(timeSinceLastDrain, util.Empty{})
 					}
+				},
+				TriggerPodCreate: func(_ context.Context, arg TriggerPodCreate) {
+					updateTriggerHandle.Emit(1, updateTriggerTags{
+						Event: "create",
+						Error: errors.SerializeTags(arg.Err),
+					})
+				},
+				TriggerPodUpdate: func(_ context.Context, arg TriggerPodUpdate) {
+					updateTriggerHandle.Emit(1, updateTriggerTags{
+						Event: "update",
+						Error: errors.SerializeTags(arg.Err),
+					})
 				},
 			}
 		},

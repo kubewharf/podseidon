@@ -27,6 +27,7 @@ import (
 
 	"github.com/kubewharf/podseidon/aggregator/aggregator"
 	aggregatorobserver "github.com/kubewharf/podseidon/aggregator/observer"
+	"github.com/kubewharf/podseidon/aggregator/updatetrigger"
 )
 
 func main() {
@@ -39,5 +40,6 @@ func main() {
 		aggregatorobserver.Provide,
 		pprutilobserver.ProvideInformer,
 		component.RequireDep(aggregator.DefaultArg()),
+		component.RequireDep(updatetrigger.New(updatetrigger.Args{})),
 	)
 }

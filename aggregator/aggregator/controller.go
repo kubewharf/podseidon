@@ -46,13 +46,9 @@ import (
 	"github.com/kubewharf/podseidon/util/util"
 	"github.com/kubewharf/podseidon/util/worker"
 
+	"github.com/kubewharf/podseidon/aggregator/constants"
 	"github.com/kubewharf/podseidon/aggregator/observer"
 	"github.com/kubewharf/podseidon/aggregator/synctime"
-)
-
-const (
-	CoreClusterName   kube.ClusterName = "core"
-	WorkerClusterName kube.ClusterName = "worker"
 )
 
 var NewController = component.Declare(
@@ -90,30 +86,25 @@ var NewController = component.Declare(
 		}
 	},
 	func(args ControllerArgs, requests *component.DepRequests) ControllerDeps {
-		electorArgs := kube.ElectorArgs{
-			ElectorName: "aggregator",
-			ClusterName: WorkerClusterName,
-		}
-
 		return ControllerDeps{
 			coreClient: component.DepPtr(
 				requests,
-				kube.NewClient(kube.ClientArgs{ClusterName: CoreClusterName}),
+				kube.NewClient(kube.ClientArgs{ClusterName: constants.CoreClusterName}),
 			),
 			workerClient: component.DepPtr(
 				requests,
-				kube.NewClient(kube.ClientArgs{ClusterName: WorkerClusterName}),
+				kube.NewClient(kube.ClientArgs{ClusterName: constants.WorkerClusterName}),
 			),
 			pprInformer: component.DepPtr(
 				requests,
 				pprutil.NewIndexedInformer(pprutil.IndexedInformerArgs{
-					ClusterName:   CoreClusterName,
+					ClusterName:   constants.CoreClusterName,
 					InformerPhase: "leader",
-					Elector:       optional.Some(electorArgs),
+					Elector:       optional.Some(constants.ElectorArgs),
 				}),
 			),
 			observer: o11y.Request[observer.Observer](requests),
-			elector:  component.DepPtr(requests, kube.NewElector(electorArgs)),
+			elector:  component.DepPtr(requests, kube.NewElector(constants.ElectorArgs)),
 			worker: component.DepPtr(requests, worker.New[types.NamespacedName](
 				"aggregator",
 				args.Clock,

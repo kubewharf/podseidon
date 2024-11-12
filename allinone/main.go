@@ -27,6 +27,7 @@ import (
 
 	"github.com/kubewharf/podseidon/aggregator/aggregator"
 	aggregatorobserver "github.com/kubewharf/podseidon/aggregator/observer"
+	"github.com/kubewharf/podseidon/aggregator/updatetrigger"
 	"github.com/kubewharf/podseidon/generator/generator"
 	generatorobserver "github.com/kubewharf/podseidon/generator/observer"
 	"github.com/kubewharf/podseidon/generator/resource"
@@ -47,6 +48,7 @@ func main() {
 		aggregatorobserver.Provide,
 		webhookobserver.Provide,
 		component.RequireDep(aggregator.DefaultArg()),
+		component.RequireDep(updatetrigger.New(updatetrigger.Args{})),
 		component.RequireDep(generator.NewController(
 			generator.ControllerArgs{
 				Types: []component.Declared[resource.TypeProvider]{

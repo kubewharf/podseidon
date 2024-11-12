@@ -123,6 +123,18 @@ aggregator:
 
   syncTimeAlgorithm: clock # "clock" to use informer event time, "status" to use last inferred timestamp
 
+  updateTrigger: # periodically update a pod to trigger watch events
+    enable: false
+    updateFrequency: 1s # update frequency for the dummy pod
+    dummyPod: # metadata of the dummy pod created
+      name: podseidon-update-trigger
+      namespace: default
+      labels: # ensure that `labels` is matched by `podLabelSelector` above
+        podseidon-update-trigger-dummy-pod: "true"
+      annotations: {}
+      image: ":" # an arbitrary value for the image field, must be non-empty to allow creation
+      scheduler: do-not-schedule # an arbitrary name that prevents actual schedulers from assigning this pod to a node
+
 webhook:
   replicas: 3
   minReadySeconds: 60

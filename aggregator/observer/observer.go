@@ -42,6 +42,9 @@ type Observer struct {
 	NextEventPoolCurrentSize    o11y.MonitorFunc[util.Empty, int]
 	NextEventPoolCurrentLatency o11y.MonitorFunc[util.Empty, time.Duration]
 	NextEventPoolSingleDrain    o11y.ObserveFunc[NextEventPoolSingleDrain]
+
+	TriggerPodCreate o11y.ObserveFunc[TriggerPodCreate]
+	TriggerPodUpdate o11y.ObserveFunc[TriggerPodUpdate]
 }
 
 func (Observer) ComponentName() string { return "aggregator" }
@@ -94,4 +97,12 @@ type NextEventPoolSingleDrain struct {
 	ObjectLatency time.Duration
 	// Time since the previous drain, None if this is the first run.
 	TimeSinceLastDrain optional.Optional[time.Duration]
+}
+
+type TriggerPodCreate struct {
+	Err error
+}
+
+type TriggerPodUpdate struct {
+	Err error
 }
