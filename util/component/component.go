@@ -62,6 +62,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync/atomic"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -161,8 +162,8 @@ func DepPtr[Api any](requests *DepRequests, base Declared[Api]) Dep[Api] {
 			typedApi, ok := api.(func() Api)
 			if !ok {
 				panic(fmt.Sprintf(
-					"Components of types %T and %T declared the same name %q",
-					comp, base, comp.manifest().Name,
+					"Components of types %T and %T declared the same name %q with incompatible APIs %T and %v",
+					comp, base, comp.manifest().Name, util.Type[Api]().Out(0), reflect.TypeOf(api).Out(0),
 				))
 			}
 

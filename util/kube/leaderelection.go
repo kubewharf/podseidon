@@ -331,10 +331,10 @@ func (e *Elector) HasElected() bool {
 }
 
 // A mock elector that always gets ready immediately.
-func MockReadyElector() *Elector {
+func MockReadyElector(ctx context.Context) *Elector {
 	return &Elector{
 		electedCh:       util.ClosedChan[util.Empty](),
-		electionCloseCh: nil,
+		electionCloseCh: ptr.To(ctx.Done()),
 		electionErr:     ptr.To(error(nil)),
 	}
 }

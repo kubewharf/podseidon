@@ -35,6 +35,17 @@ func ProvideLogging() component.Declared[Observer] {
 		},
 		func(util.Empty) Observer {
 			return Observer{
+				InterpretProtectors: func(ctx context.Context, arg InterpretProtectors) {
+					klog.FromContext(ctx).WithValues(
+						"group", arg.Group,
+						"version", arg.Version,
+						"resource", arg.Resource,
+						"namespace", arg.Namespace,
+						"name", arg.Name,
+						"decisions", arg.Decisions,
+						"requiredProtectors", len(arg.RequiredProtectors),
+					).V(4).Info("interpret protectors")
+				},
 				StartReconcile: func(ctx context.Context, arg StartReconcile) (context.Context, context.CancelFunc) {
 					logger := klog.FromContext(ctx)
 					logger = logger.WithValues(
@@ -101,17 +112,7 @@ func ProvideLogging() component.Declared[Observer] {
 						Info("No PodProtectors present, ensuring finalizer removal from source object")
 					return ctx, util.NoOp
 				},
-				InterpretProtectors: func(ctx context.Context, arg InterpretProtectors) {
-					klog.FromContext(ctx).WithValues(
-						"group", arg.Group,
-						"version", arg.Version,
-						"resource", arg.Resource,
-						"namespace", arg.Namespace,
-						"name", arg.Name,
-						"decisions", arg.Decisions,
-						"requiredProtectors", len(arg.RequiredProtectors),
-					).V(4).Info("interpret protectors")
-				},
+				MonitorWorkloads: func(context.Context, util.Empty, func() MonitorWorkloads) {},
 			}
 		},
 	)

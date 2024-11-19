@@ -45,6 +45,8 @@ generator-worker-concurrency: {{toJson .main.Values.generator.workerCount}}
 {{- $selector := get .main.Values.generator.protectedSelector "deployments.apps"}}
 {{- if empty $selector | not}}
 deployment-plugin-protection-selector: {{toJson $selector}}
+
+generator-monitor-enable: {{toJson .main.Values.generator.monitor.enable}}
 {{- end}}
 {{- end}}
 
