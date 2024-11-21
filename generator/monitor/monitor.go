@@ -121,20 +121,22 @@ type State struct {
 }
 
 func pprToStatus(ppr *podseidonv1a1.PodProtector) observer.MonitorWorkloads {
+	availableProportionPpm := int64(0)
+	if ppr.Spec.MinAvailable > 0 {
+		availableProportionPpm = min(ProportionPpmUnits, util.RoundedIntDiv(
+			int64(ppr.Status.Summary.AggregatedAvailable)*ProportionPpmUnits,
+			int64(ppr.Spec.MinAvailable),
+		))
+	}
+
 	return observer.MonitorWorkloads{
 		NumWorkloads:                1,
 		MinAvailable:                int64(ppr.Spec.MinAvailable),
 		TotalReplicas:               int64(ppr.Status.Summary.Total),
 		AggregatedAvailableReplicas: int64(ppr.Status.Summary.AggregatedAvailable),
 		EstimatedAvailableReplicas:  int64(ppr.Status.Summary.EstimatedAvailable),
-		SumAvailableProportionPpm: min(
-			util.RoundedIntDiv(
-				int64(ppr.Status.Summary.AggregatedAvailable)*ProportionPpmUnits,
-				int64(ppr.Spec.MinAvailable),
-			),
-			ProportionPpmUnits,
-		),
-		SumLatencyMillis: ppr.Status.Summary.MaxLatencyMillis,
+		SumAvailableProportionPpm:   availableProportionPpm,
+		SumLatencyMillis:            ppr.Status.Summary.MaxLatencyMillis,
 	}
 }
 
