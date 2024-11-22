@@ -174,7 +174,7 @@ build-image:
 
     ARG output_image_prefix='ghcr.io/kubewharf/podseidon-'
     ARG output_tag='latest'
-    SAVE IMAGE ${output_image_prefix}${module}:${output_tag}
+    SAVE IMAGE --push ${output_image_prefix}${module}:${output_tag}
 
 # Generate all files that have to be committed on Git.
 generate:
@@ -332,13 +332,26 @@ chart:
     RUN apk add --no-cache helm kubectl
 
     ARG app_version='v0.0.0-dev'
+    ARG chart_version='0.0.0'
 
     COPY chart chart
     COPY +crd-gen/crds chart/crds
-    RUN helm package --app-version $app_version chart
+    RUN helm package --version="$chart_version" --app-version="$app_version" chart
     RUN mv *.tgz chart.tgz
 
     SAVE ARTIFACT chart.tgz AS LOCAL output/chart.tgz
+
+chart-push:
+    FROM +golang-base
+
+    RUN apk add --no-cache helm
+
+    ARG registry='ghcr.io'
+    ARG path_prefix='kubewharf'
+
+    COPY +chart/chart.tgz chart.tgz
+    RUN --mount type=secret,target=/root/.docker/config.json,id=docker_config \
+        helm push chart.tgz oci://${registry}/${path_prefix}
 
 build-kwok:
     FROM +golang-base
