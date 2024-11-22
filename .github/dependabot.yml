@@ -1,6 +1,38 @@
 version: 2
 updates:
   - package-ecosystem: gomod
-    directory: /
+    directory: /tools
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /apis
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /client
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /util
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /generator
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /aggregator
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /webhook
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /tests
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /allinone
     schedule:
       interval: weekly

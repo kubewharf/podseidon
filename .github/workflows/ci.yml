@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Run unit tests
+    runs-on: [ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: earthly/actions-setup@v1
+        with:
+          version: 'v0.8.0'
+      - name: Run unit tests
+        run: ssh-agent earthly +test
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+          files: output/coverage.out
+
+  e2e:
+    name: Run e2e tests
+    runs-on: [ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: earthly/actions-setup@v1
+        with:
+          version: 'v0.8.0'
+      - name: Run e2e tests
+        run: ssh-agent earthly -P +e2e
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: output
+          path: output
+
+  lint:
+    name: golangci-lint
+    runs-on: [ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: earthly/actions-setup@v1
+        with:
+          version: 'v0.8.0'
+      - name: Run linters
+        run: ssh-agent earthly +lint
+
+  typos:
+    name: Check typos
+    runs-on: [ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crate-ci/typos@master
+        with:
+          config: typos.toml
