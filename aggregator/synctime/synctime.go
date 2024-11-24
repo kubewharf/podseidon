@@ -25,6 +25,8 @@ import (
 	"github.com/kubewharf/podseidon/util/errors"
 	"github.com/kubewharf/podseidon/util/optional"
 	"github.com/kubewharf/podseidon/util/util"
+
+	"github.com/kubewharf/podseidon/aggregator/constants"
 )
 
 // PodInterpreter determines the last timestamp a pod was updated from the object.
@@ -49,6 +51,13 @@ func (StatusPodInterpreter) Interpret(pod *corev1.Pod) (time.Time, error) {
 
 	if !pod.DeletionTimestamp.Time.IsZero() {
 		maxTime = pod.DeletionTimestamp.Time
+	}
+
+	if timeStr, isUpdateTrigger := pod.Annotations[constants.AnnotUpdateTriggerTime]; isUpdateTrigger {
+		updateTime, err := time.Parse(time.RFC3339Nano, timeStr)
+		if err == nil && updateTime.After(maxTime) {
+			maxTime = updateTime
+		}
 	}
 
 	for _, condition := range pod.Status.Conditions {
