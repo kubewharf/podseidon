@@ -41,7 +41,7 @@ func Register[Value any, Tags any](
 }
 
 type Handle[Tags any, Value any] struct {
-	metricType Type[Value]
+	metricType Emitter[Value]
 	tagsDesc   TagsDesc[Tags]
 }
 
@@ -57,7 +57,7 @@ func (handle Handle[Tags, Value]) With(tags Tags) TaggedHandle[Value] {
 }
 
 type TaggedHandle[Value any] struct {
-	metricType Type[Value]
+	metricType Emitter[Value]
 	tagValues  []string
 }
 
@@ -67,6 +67,10 @@ func (handle TaggedHandle[Value]) Emit(value Value) {
 
 type Type[Value any] interface {
 	InitCollector(name string, help string, tagKeys []string) prometheus.Collector
+	Emitter[Value]
+}
+
+type Emitter[Value any] interface {
 	Emit(tagValues []string, value Value)
 }
 
@@ -94,6 +98,10 @@ func (ty *typeGauge[Value]) Emit(tags []string, value Value) {
 }
 
 func IntGauge() Type[int] { return &typeGauge[int]{typeConv: intToFloat64, collector: nil} }
+
+func Int32Gauge() Type[int32] { return &typeGauge[int32]{typeConv: int32ToFloat64, collector: nil} }
+
+func Int64Gauge() Type[int64] { return &typeGauge[int64]{typeConv: int64ToFloat64, collector: nil} }
 
 func FloatGauge() Type[float64] {
 	return &typeGauge[float64]{typeConv: util.Identity[float64], collector: nil}
@@ -298,3 +306,7 @@ func (def reflectTags[T]) TagValues(instance T) []string {
 }
 
 func intToFloat64(i int) float64 { return float64(i) }
+
+func int32ToFloat64(i int32) float64 { return float64(i) }
+
+func int64ToFloat64(i int64) float64 { return float64(i) }

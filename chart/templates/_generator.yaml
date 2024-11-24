@@ -46,6 +46,8 @@ generator-worker-concurrency: {{toJson .main.Values.generator.workerCount}}
 {{- if empty $selector | not}}
 deployment-plugin-protection-selector: {{toJson $selector}}
 {{- end}}
+
+generator-monitor-enable: {{toJson .main.Values.generator.monitor.enable}}
 {{- end}}
 
 {{- define "podseidon.generator.env.yaml"}}

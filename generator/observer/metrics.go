@@ -71,7 +71,65 @@ func ProvideMetrics() component.Declared[Observer] {
 				})
 			}
 
+			monitorWorkloadsHandle := metrics.RegisterMultiField(
+				deps.Registry(),
+				"generator_monitor_workloads",
+				"Global workload status",
+				metrics.NewReflectTags[util.Empty](),
+				metrics.NewField(
+					"num_workloads",
+					"Number of workload objects managed by this generator",
+					metrics.IntGauge(),
+					func(status MonitorWorkloads) int { return status.NumWorkloads },
+				),
+				metrics.NewField(
+					"min_available",
+					"Sum of minAvailable over workloads managed by this generator",
+					metrics.Int64Gauge(),
+					func(status MonitorWorkloads) int64 { return status.MinAvailable },
+				),
+				metrics.NewField(
+					"current_total_replicas",
+					"Current aggregated sum of total replicas over workloads managed by this generator.",
+					metrics.Int64Gauge(),
+					func(status MonitorWorkloads) int64 { return status.TotalReplicas },
+				),
+				metrics.NewField(
+					"current_aggregated_available_replicas",
+					"Current aggregated sum of available replicas over workloads managed by this generator.",
+					metrics.Int64Gauge(),
+					func(status MonitorWorkloads) int64 { return status.AggregatedAvailableReplicas },
+				),
+				metrics.NewField(
+					"current_estimated_available_replicas",
+					"Current estimated sum of available replicas over workloads managed by this generator.",
+					metrics.Int64Gauge(),
+					func(status MonitorWorkloads) int64 { return status.EstimatedAvailableReplicas },
+				),
+				metrics.NewField(
+					"sum_available_proportion_ppm",
+					"Sum of the proportion of aggregated available replicas, saturated at 1, rounded to nearest ppm (parts-per-million).",
+					metrics.Int64Gauge(),
+					func(status MonitorWorkloads) int64 { return status.SumAvailableProportionPpm },
+				),
+				metrics.NewField(
+					"avg_available_proportion_ppm",
+					"Unweighted average of service availability for every PodProtector (0 to 1).",
+					metrics.FloatGauge(),
+					func(status MonitorWorkloads) float64 {
+						return float64(status.SumAvailableProportionPpm) / 1e6 / float64(status.NumWorkloads)
+					},
+				),
+				metrics.NewField(
+					"sum_latency_millis",
+					"Sum of the .status.summary.maxLatencyMillis field over workloads managed by this generator.",
+					metrics.Int64Gauge(),
+					func(status MonitorWorkloads) int64 { return status.SumLatencyMillis },
+				),
+			)
+
 			return Observer{
+				InterpretProtectors: func(context.Context, InterpretProtectors) {},
 				StartReconcile: func(ctx context.Context, arg StartReconcile) (context.Context, context.CancelFunc) {
 					ctx = context.WithValue(ctx, reconcileGvrKey{}, ReconcileGvr{
 						Group:    arg.Group,
@@ -120,7 +178,9 @@ func ProvideMetrics() component.Declared[Observer] {
 					})
 					return ctx, util.NoOp
 				},
-				InterpretProtectors: func(context.Context, InterpretProtectors) {},
+				MonitorWorkloads: func(ctx context.Context, _ util.Empty, getter func() MonitorWorkloads) {
+					metrics.Repeating(ctx, deps, monitorWorkloadsHandle.With(util.Empty{}), getter)
+				},
 			}
 		},
 	)

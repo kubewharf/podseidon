@@ -28,11 +28,12 @@ import (
 	"github.com/kubewharf/podseidon/aggregator/aggregator"
 	aggregatorobserver "github.com/kubewharf/podseidon/aggregator/observer"
 	"github.com/kubewharf/podseidon/generator/generator"
+	"github.com/kubewharf/podseidon/generator/monitor"
 	generatorobserver "github.com/kubewharf/podseidon/generator/observer"
 	"github.com/kubewharf/podseidon/generator/resource"
 	"github.com/kubewharf/podseidon/generator/resource/deployment"
 	webhookobserver "github.com/kubewharf/podseidon/webhook/observer"
-	"github.com/kubewharf/podseidon/webhook/server"
+	webhookserver "github.com/kubewharf/podseidon/webhook/server"
 )
 
 func main() {
@@ -54,6 +55,7 @@ func main() {
 				},
 			},
 		)),
-		component.RequireDep(server.New(util.Empty{})),
+		component.RequireDep(monitor.New(monitor.Args{})),
+		component.RequireDep(webhookserver.New(util.Empty{})),
 	)
 }

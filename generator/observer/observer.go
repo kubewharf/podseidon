@@ -40,6 +40,8 @@ type Observer struct {
 	SyncProtector        o11y.ObserveScopeFunc[*podseidonv1a1.PodProtector]
 	DeleteProtector      o11y.ObserveScopeFunc[*podseidonv1a1.PodProtector]
 	CleanSourceFinalizer o11y.ObserveScopeFunc[StartReconcile]
+
+	MonitorWorkloads o11y.MonitorFunc[util.Empty, MonitorWorkloads]
 }
 
 func (Observer) ComponentName() string { return "generator" }
@@ -86,3 +88,47 @@ const (
 	ActionDeleteProtector     Action = "DeleteProtector"
 	ActionError               Action = "Error"
 )
+
+type MonitorWorkloads struct {
+	// Number of workload objects managed by this generator.
+	NumWorkloads int
+
+	// Sum of minAvailable over workloads managed by this generator.
+	MinAvailable int64
+
+	// Sum of total aggregated replicas over workloads managed by this generator.
+	TotalReplicas int64
+
+	// Sum of available aggregated replicas over workloads managed by this generator.
+	AggregatedAvailableReplicas int64
+
+	// Sum of available estimated replicas over workloads managed by this generator.
+	EstimatedAvailableReplicas int64
+
+	// Sum of the proportion of aggregated available replicas, saturated at 1, rounded to nearest ppm (parts-per-million).
+	// When divided by NumWorkloads, this is the unweighted average of service availability for every PodProtector.
+	SumAvailableProportionPpm int64
+
+	// Sum of the .status.summary.maxLatencyMillis field over workloads managed by this generator.
+	SumLatencyMillis int64
+}
+
+func (dest *MonitorWorkloads) Add(delta MonitorWorkloads) {
+	dest.NumWorkloads += delta.NumWorkloads
+	dest.MinAvailable += delta.MinAvailable
+	dest.TotalReplicas += delta.TotalReplicas
+	dest.AggregatedAvailableReplicas += delta.AggregatedAvailableReplicas
+	dest.EstimatedAvailableReplicas += delta.EstimatedAvailableReplicas
+	dest.SumAvailableProportionPpm += delta.SumAvailableProportionPpm
+	dest.SumLatencyMillis += delta.SumLatencyMillis
+}
+
+func (dest *MonitorWorkloads) Subtract(delta MonitorWorkloads) {
+	dest.NumWorkloads -= delta.NumWorkloads
+	dest.MinAvailable -= delta.MinAvailable
+	dest.TotalReplicas -= delta.TotalReplicas
+	dest.AggregatedAvailableReplicas -= delta.AggregatedAvailableReplicas
+	dest.EstimatedAvailableReplicas -= delta.EstimatedAvailableReplicas
+	dest.SumAvailableProportionPpm -= delta.SumAvailableProportionPpm
+	dest.SumLatencyMillis -= delta.SumLatencyMillis
+}

@@ -82,6 +82,9 @@ generator:
   protectedSelector: # Only objects matching the selector have a generated protector.
     deployments.apps: 'podseidon.kubewharf.io/protect=true'
 
+  monitor: # Report global PodProtector metrics
+    enable: true
+
 aggregator:
   replicas: 3
   minReadySeconds: 60

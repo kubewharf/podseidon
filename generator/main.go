@@ -26,6 +26,7 @@ import (
 	workerobserver "github.com/kubewharf/podseidon/util/worker/observer"
 
 	"github.com/kubewharf/podseidon/generator/generator"
+	"github.com/kubewharf/podseidon/generator/monitor"
 	generatorobserver "github.com/kubewharf/podseidon/generator/observer"
 	"github.com/kubewharf/podseidon/generator/resource"
 	"github.com/kubewharf/podseidon/generator/resource/deployment"
@@ -47,5 +48,6 @@ func main() {
 				},
 			},
 		)),
+		component.RequireDep(monitor.New(monitor.Args{})),
 	)
 }
