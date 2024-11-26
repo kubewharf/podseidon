@@ -83,6 +83,18 @@ func ProvideMetrics() component.Declared[Observer] {
 					func(status MonitorWorkloads) int { return status.NumWorkloads },
 				),
 				metrics.NewField(
+					"num_non_zero_workloads",
+					"Number of workload objects managed by this generator with non-zero minAvailable",
+					metrics.IntGauge(),
+					func(status MonitorWorkloads) int { return status.NumNonZeroWorkloads },
+				),
+				metrics.NewField(
+					"num_available_workloads",
+					"Number of workload objects managed by this generator with minAvailable satisfied",
+					metrics.IntGauge(),
+					func(status MonitorWorkloads) int { return status.NumAvailableWorkloads },
+				),
+				metrics.NewField(
 					"min_available",
 					"Sum of minAvailable over workloads managed by this generator",
 					metrics.Int64Gauge(),
@@ -117,7 +129,7 @@ func ProvideMetrics() component.Declared[Observer] {
 					"Unweighted average of service availability for every PodProtector (0 to 1).",
 					metrics.FloatGauge(),
 					func(status MonitorWorkloads) float64 {
-						return float64(status.SumAvailableProportionPpm) / 1e6 / float64(status.NumWorkloads)
+						return float64(status.SumAvailableProportionPpm) / 1e6 / float64(status.NumNonZeroWorkloads)
 					},
 				),
 				metrics.NewField(

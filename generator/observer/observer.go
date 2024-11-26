@@ -93,6 +93,12 @@ type MonitorWorkloads struct {
 	// Number of workload objects managed by this generator.
 	NumWorkloads int
 
+	// Number of workload objects managed by this generator with non-zero minAvailable.
+	NumNonZeroWorkloads int
+
+	// Number of workload objects managed by this generator with minAvailable satisfied.
+	NumAvailableWorkloads int
+
 	// Sum of minAvailable over workloads managed by this generator.
 	MinAvailable int64
 
@@ -106,7 +112,8 @@ type MonitorWorkloads struct {
 	EstimatedAvailableReplicas int64
 
 	// Sum of the proportion of aggregated available replicas, saturated at 1, rounded to nearest ppm (parts-per-million).
-	// When divided by NumWorkloads, this is the unweighted average of service availability for every PodProtector.
+	// Workloads with zero minAvailable do not contribute to this sum.
+	// When divided by NumNonZeroWorkloads, this is the unweighted average of service availability for every PodProtector.
 	SumAvailableProportionPpm int64
 
 	// Sum of the .status.summary.maxLatencyMillis field over workloads managed by this generator.
@@ -115,6 +122,8 @@ type MonitorWorkloads struct {
 
 func (dest *MonitorWorkloads) Add(delta MonitorWorkloads) {
 	dest.NumWorkloads += delta.NumWorkloads
+	dest.NumNonZeroWorkloads += delta.NumNonZeroWorkloads
+	dest.NumAvailableWorkloads += delta.NumAvailableWorkloads
 	dest.MinAvailable += delta.MinAvailable
 	dest.TotalReplicas += delta.TotalReplicas
 	dest.AggregatedAvailableReplicas += delta.AggregatedAvailableReplicas
@@ -125,6 +134,8 @@ func (dest *MonitorWorkloads) Add(delta MonitorWorkloads) {
 
 func (dest *MonitorWorkloads) Subtract(delta MonitorWorkloads) {
 	dest.NumWorkloads -= delta.NumWorkloads
+	dest.NumNonZeroWorkloads -= delta.NumNonZeroWorkloads
+	dest.NumAvailableWorkloads -= delta.NumAvailableWorkloads
 	dest.MinAvailable -= delta.MinAvailable
 	dest.TotalReplicas -= delta.TotalReplicas
 	dest.AggregatedAvailableReplicas -= delta.AggregatedAvailableReplicas
