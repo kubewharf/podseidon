@@ -2,7 +2,7 @@ module github.com/kubewharf/podseidon/apis
 
 go 1.23
 
-require k8s.io/apimachinery v0.31.0
+require k8s.io/apimachinery v0.31.3
 
 require (
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
