@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    name: Build docker images
+    runs-on: [ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: earthly/actions-setup@v1
+        with:
+          version: 'v0.8.0'
+      - name: Docker login for ghcr
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{github.actor}}
+          password: ${{secrets.GITHUB_TOKEN}}
+      - name: Build Docker images
+        run: ssh-agent earthly --push +build --output_tag=${{github.ref_name}}
+  chart:
+    name: Build helm chart
+    runs-on: [ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: earthly/actions-setup@v1
+        with:
+          version: 'v0.8.0'
+      - name: Docker login for ghcr
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{github.actor}}
+          password: ${{secrets.GITHUB_TOKEN}}
+      - name: Build helm chart
+        run: |
+          ssh-agent earthly --ci --secret docker_config="$(cat ~/.docker/config.json)" \
+            +chart-push --chart_version=${{github.ref_name}} --app_version=${{github.ref_name}}
