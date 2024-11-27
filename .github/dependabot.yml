@@ -5,34 +5,18 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: gomod
-    directory: /apis
+    directories:
+      - /apis
+      - /client
+      - /util
+      - /generator
+      - /aggregator
+      - /webhook
+      - /allinone
+      - /tests
     schedule:
       interval: weekly
-  - package-ecosystem: gomod
-    directory: /client
-    schedule:
-      interval: weekly
-  - package-ecosystem: gomod
-    directory: /util
-    schedule:
-      interval: weekly
-  - package-ecosystem: gomod
-    directory: /generator
-    schedule:
-      interval: weekly
-  - package-ecosystem: gomod
-    directory: /aggregator
-    schedule:
-      interval: weekly
-  - package-ecosystem: gomod
-    directory: /webhook
-    schedule:
-      interval: weekly
-  - package-ecosystem: gomod
-    directory: /tests
-    schedule:
-      interval: weekly
-  - package-ecosystem: gomod
-    directory: /allinone
-    schedule:
-      interval: weekly
+    ignore:
+      # k8s.io/apimachinery and k8s.io/api updates always come with k8s.io/client-go updates
+      - dependency-name: k8s.io/apimachinery
+      - dependency-name: k8s.io/api
