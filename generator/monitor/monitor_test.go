@@ -81,9 +81,28 @@ func TestMonitor(t *testing.T) {
 					},
 				},
 			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "default",
+					Name:      "3",
+				},
+				Spec: podseidonv1a1.PodProtectorSpec{
+					MinAvailable: 0,
+				},
+				Status: podseidonv1a1.PodProtectorStatus{
+					Summary: podseidonv1a1.PodProtectorStatusSummary{
+						Total:               0,
+						AggregatedAvailable: 0,
+						EstimatedAvailable:  0,
+						MaxLatencyMillis:    0,
+					},
+				},
+			},
 		},
 		Expect: observer.MonitorWorkloads{
-			NumWorkloads:                2,
+			NumWorkloads:                3,
+			NumNonZeroWorkloads:         2,
+			NumAvailableWorkloads:       2,
 			MinAvailable:                10 + 100,
 			TotalReplicas:               13 + 200,
 			AggregatedAvailableReplicas: 8 + 150,
@@ -101,7 +120,9 @@ func TestMonitor(t *testing.T) {
 		},
 		Delete: []types.NamespacedName{{Namespace: "default", Name: "1"}},
 		Expect: observer.MonitorWorkloads{
-			NumWorkloads:                1,
+			NumWorkloads:                2,
+			NumNonZeroWorkloads:         1,
+			NumAvailableWorkloads:       1,
 			MinAvailable:                200,
 			TotalReplicas:               200,
 			AggregatedAvailableReplicas: 150,
