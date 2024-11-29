@@ -27,6 +27,7 @@ var Provide = component.RequireDeps(
 type Observer struct {
 	StartReconcile o11y.ObserveScopeFunc[StartReconcile]
 	EndReconcile   o11y.ObserveFunc[EndReconcile]
+	QueueLength    o11y.MonitorFunc[QueueLength, int]
 }
 
 func (Observer) ComponentName() string { return "worker" }
@@ -39,4 +40,8 @@ type StartReconcile struct {
 
 type EndReconcile struct {
 	Err error
+}
+
+type QueueLength struct {
+	WorkerName string
 }

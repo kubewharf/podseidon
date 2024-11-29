@@ -36,9 +36,13 @@ func ProvideMetrics() component.Declared[Observer] {
 				workerName string
 			}
 
-			type workerTags struct {
+			type reconcileTags struct {
 				Worker string
 				Error  string
+			}
+
+			type queueLengthTags struct {
+				Worker string
 			}
 
 			reconcileHandle := metrics.Register(
@@ -46,7 +50,14 @@ func ProvideMetrics() component.Declared[Observer] {
 				"worker_reconcile",
 				"Duration of a worker reconcile run.",
 				metrics.FunctionDurationHistogram(),
-				metrics.NewReflectTags[workerTags](),
+				metrics.NewReflectTags[reconcileTags](),
+			)
+			queueLengthHandle := metrics.Register(
+				deps.Registry(),
+				"worker_queue_length",
+				"Queue length of a worker.",
+				metrics.IntGauge(),
+				metrics.NewReflectTags[queueLengthTags](),
 			)
 
 			return Observer{
@@ -61,10 +72,13 @@ func ProvideMetrics() component.Declared[Observer] {
 
 					duration := time.Since(data.startTime)
 
-					reconcileHandle.Emit(duration, workerTags{
+					reconcileHandle.Emit(duration, reconcileTags{
 						Worker: data.workerName,
 						Error:  errors.SerializeTags(arg.Err),
 					})
+				},
+				QueueLength: func(ctx context.Context, arg QueueLength, getter func() int) {
+					metrics.Repeating(ctx, deps, queueLengthHandle.With(queueLengthTags{Worker: arg.WorkerName}), getter)
 				},
 			}
 		},
