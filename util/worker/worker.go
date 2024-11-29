@@ -231,6 +231,8 @@ func start[QueueItem comparable](
 
 	state.completion.Add(*options.WorkerCount)
 
+	go deps.Observer.Get().QueueLength(ctx, observer.QueueLength{WorkerName: args.Name}, state.queue.Len)
+
 	for range *options.WorkerCount {
 		go runWorker(
 			ctx,

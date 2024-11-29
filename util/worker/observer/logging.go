@@ -62,6 +62,7 @@ func ProvideLogging() component.Declared[Observer] {
 						logger.V(3).WithCallDepth(1).Info("reconcile complete")
 					}
 				},
+				QueueLength: func(_ context.Context, _ QueueLength, _ func() int) {},
 			}
 		},
 	)
