@@ -35,7 +35,8 @@ golang-base:
 tools-base:
     FROM +golang-base
 
-    COPY tools/go.mod tools/go.sum tools/go.work tools/go.work.sum tools
+    COPY --dir tools/go.mod tools/go.sum tools/go.work tools
+    COPY --if-exists --dir tools/go.work.sum tools
     WORKDIR tools
     RUN --ssh go mod download
 
@@ -123,7 +124,8 @@ code-generator:
 build-base:
     FROM +golang-base
 
-    COPY go.work go.work.sum .
+    COPY --dir go.work .
+    COPY --if-exists --dir go.work.sum .
     # Generate stub modules so that go.work can work without loading the code of unrelated modules into the image
     FOR mod IN apis client util generator aggregator webhook allinone tests
         RUN mkdir $mod && echo "module github.com/kubewharf/podseidon/$mod" >$mod/go.mod
@@ -256,7 +258,8 @@ lint:
 
     CACHE --id go-cache --sharing shared /root/.cache
 
-    COPY go.work go.work.sum /work/
+    COPY --dir go.work /work/
+    COPY --if-exists --dir go.work.sum /work/
     WORKDIR /work
 
     ARG dep_modules='apis client'
