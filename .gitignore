@@ -1,2 +1,2 @@
-bin
-output
+/output
+/go.work.sum
