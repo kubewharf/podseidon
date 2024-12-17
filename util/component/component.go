@@ -83,9 +83,12 @@ var ErrRecursiveDependencies = errors.TagErrorf(
 //
 // This interface is only useful for lifecycle orchestration and should not be implemented by other packages.
 type Component interface {
-	// Describes this component for dependency resolution.
-	manifest() manifest
+	getName() string
 
+	// Describes this component for dependency resolution.
+	depRequests() []*depRequest
+
+	canBeMergedInto() bool
 	// Updates the other component upon name duplication.
 	mergeInto(other Component) []*depRequest
 
@@ -103,11 +106,6 @@ type Component interface {
 	Join(ctx context.Context) error
 	// Registers health check handlers.
 	RegisterHealthChecks(handler *healthz.Handler, onFail func(name string, err error))
-}
-
-type manifest struct {
-	Name         string
-	Dependencies []*depRequest
 }
 
 // A registry of dependencies requested by components.
@@ -163,7 +161,7 @@ func DepPtr[Api any](requests *DepRequests, base Declared[Api]) Dep[Api] {
 			if !ok {
 				panic(fmt.Sprintf(
 					"Components of types %T and %T declared the same name %q with incompatible APIs %T and %v",
-					comp, base, comp.manifest().Name, util.Type[Api]().Out(0), reflect.TypeOf(api).Out(0),
+					comp, base, comp.getName(), util.Type[Api]().Out(0), reflect.TypeOf(api).Out(0),
 				))
 			}
 
@@ -257,10 +255,14 @@ func resolveRequest(
 	request *depRequest,
 ) (string, Component, any) {
 	requestComp, requestApi := request.getNew()
-	manifest := requestComp.manifest()
+	name := requestComp.getName()
 
 	// already exists, return previous value
-	if prev, hasPrev := componentMap[manifest.Name]; hasPrev {
+	if prev, hasPrev := componentMap[name]; hasPrev {
+		if prev == nil {
+			panic(fmt.Sprintf("cyclic dependency detected: %q", name))
+		}
+
 		deps := requestComp.mergeInto(prev.comp)
 		// resolve incremental dependencies
 
@@ -270,25 +272,27 @@ func resolveRequest(
 			prev.deps.Insert(depName)
 		}
 
-		return manifest.Name, prev.comp, prev.apiGetter
+		return name, prev.comp, prev.apiGetter
 	}
+
+	componentMap[name] = nil
 
 	requestDeps := sets.New[string]()
 
 	// new component; resolve dependencies, init and return the instance we got
-	for _, dep := range manifest.Dependencies {
+	for _, dep := range requestComp.depRequests() {
 		depName, depComp, depApi := resolveRequest(componentMap, dep)
 		dep.set(depComp, depApi)
 		requestDeps.Insert(depName)
 	}
 
-	componentMap[manifest.Name] = &componentMapEntry{
+	componentMap[name] = &componentMapEntry{
 		comp:      requestComp,
 		apiGetter: requestApi,
 		deps:      requestDeps,
 	}
 
-	return manifest.Name, requestComp, requestApi
+	return name, requestComp, requestApi
 }
 
 // Accessor to interact with components by name.
@@ -356,21 +360,55 @@ type componentImpl[Args any, Options any, Deps any, State any] struct {
 	// Merge arguments of this instantiation into the previous instantiation.
 	//
 	// Optionally requests extra dependencies.
-	onMerge func(*Args, *Deps, *DepRequests)
+	mergeIntoFn func(Component) []*depRequest
+
+	// Records whether SkipFutureMerges() was called.
+	skipFutureMerges bool
 
 	phase *atomic.Pointer[string]
 }
 
-type setOnMerge[Args any, Deps any] interface {
+type declaredComp[Args any, Deps any] interface {
 	setOnMerge(onMerge func(*Args, *Deps, *DepRequests))
+	setSkipFutureMerges()
 }
 
-//
-//nolint:unused // Implements unexported interface setOnMerge, false positive from unused lint
+//nolint:unused // Implements unexported interface declaredComp, false positive from unused lint
 func (impl *componentImpl[Args, Options, Deps, State]) setOnMerge(
 	onMerge func(*Args, *Deps, *DepRequests),
 ) {
-	impl.onMerge = onMerge
+	impl.mergeIntoFn = strictMergeIntoFn[Args, Options, Deps, State](impl.name, onMerge)
+}
+
+//nolint:unused // Implements unexported interface declaredComp, false positive from unused lint
+func (impl *componentImpl[Args, Options, Deps, State]) setSkipFutureMerges() {
+	impl.skipFutureMerges = true
+}
+
+func strictMergeIntoFn[Args any, Options any, Deps any, State any](
+	compName string,
+	onMerge func(*Args, *Deps, *DepRequests),
+) func(Component) []*depRequest {
+	return func(other Component) []*depRequest {
+		if !other.canBeMergedInto() {
+			return []*depRequest{}
+		}
+
+		otherTyped, isValidType := other.(*componentImpl[Args, Options, Deps, State])
+		if !isValidType {
+			panic(fmt.Sprintf(
+				"cannot merge %q [%v, %v, %v, %v] into incompatible Component type %T",
+				compName,
+				util.Type[Args](), util.Type[Options](), util.Type[Deps](), util.Type[State](),
+				otherTyped,
+			))
+		}
+
+		reqs := DepRequests{requests: nil}
+		onMerge(&otherTyped.Args, &otherTyped.Deps, &reqs)
+
+		return reqs.requests
+	}
 }
 
 const phaseStarted = "Started"
@@ -388,7 +426,7 @@ func isPhaseReady(phase string) bool {
 //
 // Refer to package documentation for the description of the arguments.
 func Declare[Args any, Options any, Deps any, State any, Api any](
-	name func(args Args) string,
+	nameFn func(args Args) string,
 	newOptions func(args Args, fs *flag.FlagSet) Options,
 	newDeps func(args Args, requests *DepRequests) Deps,
 	init func(ctx context.Context, args Args, options Options, deps Deps) (*State, error),
@@ -396,6 +434,7 @@ func Declare[Args any, Options any, Deps any, State any, Api any](
 	api func(d *Data[Args, Options, Deps, State]) Api,
 ) DeclaredCtor[Args, Deps, Api] {
 	return func(args Args) Declared[Api] {
+		name := nameFn(args)
 		impl := &componentImpl[Args, Options, Deps, State]{
 			Data: Data[Args, Options, Deps, State]{
 				Args:    args,
@@ -403,13 +442,14 @@ func Declare[Args any, Options any, Deps any, State any, Api any](
 				Deps:    util.Zero[Deps](),
 				State:   nil,
 			},
-			name:      name(args),
-			optionsFn: newOptions,
-			depsFn:    newDeps,
-			init:      init,
-			lifecycle: lifecycle,
-			onMerge:   nil,
-			phase:     nil,
+			name:             name,
+			optionsFn:        newOptions,
+			depsFn:           newDeps,
+			init:             init,
+			lifecycle:        lifecycle,
+			mergeIntoFn:      strictMergeIntoFn[Args, Options, Deps, State](name, func(*Args, *Deps, *DepRequests) {}),
+			skipFutureMerges: false,
+			phase:            nil,
 		}
 
 		if start := impl.lifecycle.Start; start != nil {
@@ -442,12 +482,27 @@ func Declare[Args any, Options any, Deps any, State any, Api any](
 
 type DeclaredCtor[Args any, Deps any, Api any] func(Args) Declared[Api]
 
+// Avoid merging with future dependency requests with the same name, silently dropping them instead.
+//
+// This is equivalent to [Declared.SkipFutureMerges], only differing by call site
+// (before vs after passing args).
+func (ctor DeclaredCtor[Args, Deps, Api]) SkipFutureMerges() DeclaredCtor[Args, Deps, Api] {
+	return func(args Args) Declared[Api] {
+		decl := ctor(args)
+		decl.SkipFutureMerges()
+
+		return decl
+	}
+}
+
+// If another component with the same name already exists and was not created from `ApiOnly`,
+// merge them together by calling `onMerge` on the states of the preceding instance.
 func (ctor DeclaredCtor[Args, Deps, Api]) WithMergeFn(
 	onMerge func(*Args, *Deps, *DepRequests),
 ) DeclaredCtor[Args, Deps, Api] {
 	return func(args Args) Declared[Api] {
 		decl := ctor(args).(*declaredImpl[Args, Deps, Api])
-		impl := decl.comp.(setOnMerge[Args, Deps])
+		impl := decl.comp.(declaredComp[Args, Deps])
 		impl.setOnMerge(onMerge)
 
 		return decl
@@ -461,6 +516,17 @@ type Declared[Api any] interface {
 	GetNew() (Component, func() Api)
 
 	set(comp Component, typedApi func() Api)
+
+	// Do not merge with future dependency requests with the same name, silently dropping them instead.
+	// Transitive dependencies from the skipped requests will not be processed.
+	//
+	// Custom main files may register components with `SkipFutureMerges` at the beginning
+	// to override the "default" implementation registered afterwards.
+	// The custom main file must be aware of the actual implementation getting skipped
+	// and ensure that the overriding implementation (the receiver of this method) replaces it fully.
+	//
+	// Always returns the receiver.
+	SkipFutureMerges() Declared[Api]
 }
 
 // A component declaration.
@@ -481,6 +547,11 @@ func (decl *declaredImpl[Args, Deps, Api]) GetNew() (Component, func() Api) {
 func (decl *declaredImpl[Args, Deps, Api]) set(comp Component, typedApi func() Api) {
 	decl.comp = comp
 	decl.api = typedApi
+}
+
+func (decl *declaredImpl[Args, Deps, Api]) SkipFutureMerges() Declared[Api] {
+	decl.comp.(declaredComp[Args, Deps]).setSkipFutureMerges()
+	return decl
 }
 
 //nolint:unused // Used from asRawDep, false positive from unused lint
@@ -524,34 +595,23 @@ type Lifecycle[Args any, Options any, Deps any, State any] struct {
 // and returns a non-nil error for unready status.
 type HealthChecks map[string]func() error
 
-func (impl *componentImpl[Args, Options, Deps, State]) manifest() manifest {
+func (impl *componentImpl[Args, Options, Deps, State]) getName() string {
+	return impl.name
+}
+
+func (impl *componentImpl[Args, Options, Deps, State]) depRequests() []*depRequest {
 	deps := DepRequests{requests: []*depRequest{}}
 	impl.Deps = impl.depsFn(impl.Args, &deps)
 
-	return manifest{
-		Name:         impl.name,
-		Dependencies: deps.requests,
-	}
+	return deps.requests
+}
+
+func (impl *componentImpl[Args, Options, Deps, State]) canBeMergedInto() bool {
+	return !impl.skipFutureMerges
 }
 
 func (impl *componentImpl[Args, Options, Deps, State]) mergeInto(other Component) []*depRequest {
-	switch other := other.(type) {
-	case *componentImpl[Args, Options, Deps, State]:
-		deps := DepRequests{requests: nil}
-
-		if impl.onMerge != nil {
-			impl.onMerge(&other.Args, &other.Deps, &deps)
-		}
-
-		return deps.requests
-
-	case emptyComponent:
-		// do not merge into empty components since the implementation is exclusively determined by the test case
-		return []*depRequest{}
-
-	default:
-		panic(fmt.Sprintf("cannot merge %q (%T) into incompatible Component type %T", impl.name, impl, other))
-	}
+	return impl.mergeIntoFn(other)
 }
 
 func (impl *componentImpl[Args, Options, Deps, State]) AddFlags(fs *flag.FlagSet) {
@@ -621,11 +681,17 @@ type emptyComponent struct {
 	name string
 }
 
-func (comp emptyComponent) manifest() manifest {
-	return manifest{
-		Name:         comp.name,
-		Dependencies: []*depRequest{},
-	}
+func (comp emptyComponent) getName() string {
+	return comp.name
+}
+
+func (emptyComponent) depRequests() []*depRequest {
+	return nil
+}
+
+func (emptyComponent) canBeMergedInto() bool {
+	// do not merge into empty components since the implementation is exclusively determined by the test case
+	return false
 }
 
 func (comp emptyComponent) mergeInto(other Component) []*depRequest {

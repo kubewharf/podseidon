@@ -120,12 +120,16 @@ func tryRun(requests []func(*component.DepRequests)) error {
 // and does not block until shutdown.
 // Returns as soon as startup completes to allow the caller to orchestrate integration tests.
 func MockStartup(ctx context.Context, requests []func(*component.DepRequests)) component.ApiMap {
+	return MockStartupWithCliArgs(ctx, requests, []string{})
+}
+
+func MockStartupWithCliArgs(ctx context.Context, requests []func(*component.DepRequests), cliArgs []string) component.ApiMap {
 	components := component.ResolveList(requests)
 
 	fs := new(pflag.FlagSet)
 	setupFlags(components, fs)
 
-	if err := fs.Parse([]string{}); err != nil {
+	if err := fs.Parse(cliArgs); err != nil {
 		panic(err)
 	}
 
