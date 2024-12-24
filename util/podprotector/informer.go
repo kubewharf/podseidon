@@ -16,150 +16,24 @@ package pprutil
 
 import (
 	"context"
-	"flag"
-	"fmt"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	podseidonv1a1 "github.com/kubewharf/podseidon/apis/v1alpha1"
-	podseidoninformers "github.com/kubewharf/podseidon/client/informers/externalversions"
 	podseidonv1a1informers "github.com/kubewharf/podseidon/client/informers/externalversions/apis/v1alpha1"
 
-	"github.com/kubewharf/podseidon/util/component"
 	"github.com/kubewharf/podseidon/util/errors"
 	"github.com/kubewharf/podseidon/util/kube"
 	"github.com/kubewharf/podseidon/util/labelindex"
 	"github.com/kubewharf/podseidon/util/o11y"
 	"github.com/kubewharf/podseidon/util/optional"
-	"github.com/kubewharf/podseidon/util/podprotector/observer"
 	"github.com/kubewharf/podseidon/util/util"
 )
 
-var NewIndexedInformer = component.Declare(
-	func(args IndexedInformerArgs) string {
-		return fmt.Sprintf("ppr-indexed-informer-%s-%s", args.ClusterName, args.InformerPhase)
-	},
-	func(_ IndexedInformerArgs, _ *flag.FlagSet) IndexedInformerOptions {
-		return IndexedInformerOptions{}
-	},
-	func(args IndexedInformerArgs, requests *component.DepRequests) IndexedInformerDeps {
-		return IndexedInformerDeps{
-			coreInformers: component.DepPtr(
-				requests,
-				kube.NewInformers(
-					kube.PodseidonInformers(
-						args.ClusterName,
-						args.InformerPhase,
-						args.Elector,
-					),
-				),
-			),
-			elector: optional.Map(
-				args.Elector,
-				func(elector kube.ElectorArgs) component.Dep[*kube.Elector] {
-					return component.DepPtr(
-						requests,
-						kube.NewElector(
-							kube.ElectorArgs{
-								ClusterName: elector.ClusterName,
-								ElectorName: elector.ElectorName,
-							},
-						),
-					)
-				},
-			),
-			observer: o11y.Request[observer.IndexedInformerObserver](requests),
-		}
-	},
-	func(
-		ctx context.Context,
-		_ IndexedInformerArgs,
-		_ IndexedInformerOptions,
-		deps IndexedInformerDeps,
-	) (*IndexedInformerState, error) {
-		informer := deps.coreInformers.Get().Podseidon().V1alpha1().PodProtectors()
-		selectorIndex := NewSelectorIndex()
-
-		postHandlers := new([]func(types.NamespacedName))
-
-		if err := SetupPprInformer(
-			ctx,
-			informer,
-			func(nsName types.NamespacedName) {
-				for _, handler := range *postHandlers {
-					handler(nsName)
-				}
-			},
-			selectorIndex,
-			func(ctx context.Context, nsName types.NamespacedName) (context.Context, context.CancelFunc) {
-				return deps.observer.Get().StartHandleEvent(ctx, nsName)
-			},
-			func(ctx context.Context) {
-				deps.observer.Get().EndHandleEvent(ctx, util.Empty{})
-			},
-			func(ctx context.Context, nsName types.NamespacedName, err error) {
-				deps.observer.Get().HandleEventError(ctx, observer.HandleEventError{Namespace: nsName.Namespace, Name: nsName.Name, Err: err})
-			},
-		); err != nil {
-			return nil, errors.TagWrapf("SetupPprInformer", err, "start PodProtector informer")
-		}
-
-		return &IndexedInformerState{
-			informer: informer,
-			informerStarted: func() bool {
-				if elector, hasElector := deps.elector.Get(); hasElector {
-					return elector.Get().HasElected()
-				}
-
-				return true
-			},
-			selectorIndex: selectorIndex,
-			postHandlers:  postHandlers,
-		}, nil
-	},
-	component.Lifecycle[IndexedInformerArgs, IndexedInformerOptions, IndexedInformerDeps, IndexedInformerState]{
-		Start: nil,
-		Join:  nil,
-		HealthChecks: func(state *IndexedInformerState) component.HealthChecks {
-			return component.HealthChecks{
-				"informer-synced": func() error {
-					if state.informerStarted() && !state.informer.Informer().HasSynced() {
-						return errors.TagErrorf("InformerNotSynced", "informer not synced yet")
-					}
-
-					return nil
-				},
-			}
-		},
-	},
-	func(
-		d *component.Data[IndexedInformerArgs, IndexedInformerOptions, IndexedInformerDeps, IndexedInformerState],
-	) IndexedInformer {
-		return indexedInformerImpl{state: d.State}
-	},
-)
-
-type IndexedInformerArgs struct {
-	ClusterName   kube.ClusterName
-	InformerPhase kube.InformerPhase
-	Elector       optional.Optional[kube.ElectorArgs]
-}
-
-type IndexedInformerOptions struct{}
-
-type IndexedInformerDeps struct {
-	observer      component.Dep[observer.IndexedInformerObserver]
-	coreInformers component.Dep[podseidoninformers.SharedInformerFactory]
-	elector       optional.Optional[component.Dep[*kube.Elector]]
-}
-
-type IndexedInformerState struct {
-	informer        podseidonv1a1informers.PodProtectorInformer
-	informerStarted func() bool
-	selectorIndex   SelectorIndex
-	postHandlers    *[]func(types.NamespacedName)
+type PodProtectorKey struct {
+	SourceName SourceName
+	types.NamespacedName
 }
 
 type SelectorIndex = *labelindex.Locked[
@@ -228,54 +102,14 @@ type IndexedInformer interface {
 	//
 	// The index may be updated again by another event by the time the function is called.
 	// There is no guarantee on the thread safety of `handler`.
-	AddPostHandler(handler func(types.NamespacedName))
+	AddPostHandler(handler func(PodProtectorKey))
 
 	// Whether the informer state represents some consistent snapshot of the cluster.
 	HasSynced() bool
 
 	// Gets a PodProtector by name if it exists.
-	Get(nsName types.NamespacedName) (optional.Optional[*podseidonv1a1.PodProtector], error)
+	Get(nsName PodProtectorKey) (optional.Optional[*podseidonv1a1.PodProtector], error)
 
 	// Queries for PodProtector under the namespace matching the label selector.
-	Query(namespace string, labels map[string]string) []types.NamespacedName
-}
-
-type indexedInformerImpl struct {
-	state *IndexedInformerState
-}
-
-func (ii indexedInformerImpl) AddPostHandler(handler func(types.NamespacedName)) {
-	*ii.state.postHandlers = append(*ii.state.postHandlers, handler)
-}
-
-func (ii indexedInformerImpl) Get(
-	nsName types.NamespacedName,
-) (optional.Optional[*podseidonv1a1.PodProtector], error) {
-	ppr, err := ii.state.informer.Lister().PodProtectors(nsName.Namespace).Get(nsName.Name)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return optional.None[*podseidonv1a1.PodProtector](), nil
-		}
-
-		return optional.None[*podseidonv1a1.PodProtector](), errors.TagWrapf(
-			"GetListerPpr",
-			err,
-			"get ppr from lister",
-		)
-	}
-
-	return optional.Some(ppr), nil
-}
-
-func (ii indexedInformerImpl) Query(namespace string, labels map[string]string) []types.NamespacedName {
-	namesIter, _ := ii.state.selectorIndex.Query(labelindex.NamespacedQuery[map[string]string]{
-		Namespace: namespace,
-		Query:     labels,
-	})
-
-	return namesIter.CollectSlice() // to unlock selectorIndex and reduce contention
-}
-
-func (ii indexedInformerImpl) HasSynced() bool {
-	return ii.state.informer.Informer().HasSynced()
+	Query(namespace string, labels map[string]string) []PodProtectorKey
 }

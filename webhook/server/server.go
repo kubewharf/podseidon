@@ -31,7 +31,7 @@ import (
 	utilhttp "github.com/kubewharf/podseidon/util/http"
 	"github.com/kubewharf/podseidon/util/o11y"
 	"github.com/kubewharf/podseidon/util/optional"
-	"github.com/kubewharf/podseidon/util/util"
+	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 
 	"github.com/kubewharf/podseidon/webhook/handler"
 	"github.com/kubewharf/podseidon/webhook/observer"
@@ -43,10 +43,10 @@ const (
 )
 
 var New = utilhttp.DeclareServer(
-	func(util.Empty) string { return "webhook" },
+	func(Args) string { return "webhook" },
 	defaultHttpPort,
 	defaultHttpsPort,
-	func(_ util.Empty, fs *flag.FlagSet) Options {
+	func(_ Args, fs *flag.FlagSet) Options {
 		return Options{
 			pathPrefix: fs.String(
 				"path-prefix",
@@ -60,13 +60,15 @@ var New = utilhttp.DeclareServer(
 			),
 		}
 	},
-	func(_ util.Empty, reqs *component.DepRequests) Deps {
+	func(args Args, reqs *component.DepRequests) Deps {
 		return Deps{
 			observer: o11y.Request[observer.Observer](reqs),
-			handler:  component.DepPtr(reqs, handler.New(handler.Args{})),
+			handler: component.DepPtr(reqs, handler.New(handler.Args{
+				SourceProvider: args.SourceProvider,
+			})),
 		}
 	},
-	func(_ util.Empty, options Options, deps Deps, mux *http.ServeMux) (*State, error) {
+	func(_ Args, options Options, deps Deps, mux *http.ServeMux) (*State, error) {
 		mux.HandleFunc(
 			fmt.Sprintf("POST %s/{cell}", *options.pathPrefix),
 			func(resp http.ResponseWriter, req *http.Request) {
@@ -180,13 +182,17 @@ var New = utilhttp.DeclareServer(
 
 		return &State{}, nil
 	},
-	component.Lifecycle[util.Empty, Options, Deps, State]{
+	component.Lifecycle[Args, Options, Deps, State]{
 		Start:        nil,
 		Join:         nil,
 		HealthChecks: nil,
 	},
-	func(util.Empty, Options, Deps, *State) util.Empty { return util.Empty{} },
+	func(Args, Options, Deps, *State) Args { return Args{} },
 )
+
+type Args struct {
+	SourceProvider pprutil.SourceProviderRequest
+}
 
 type Options struct {
 	pathPrefix *string

@@ -3,7 +3,6 @@ package constants
 import "github.com/kubewharf/podseidon/util/kube"
 
 const (
-	CoreClusterName   kube.ClusterName = "core"
 	WorkerClusterName kube.ClusterName = "worker"
 )
 

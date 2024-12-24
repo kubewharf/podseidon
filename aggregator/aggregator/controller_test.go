@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/podseidon/util/iter"
 	"github.com/kubewharf/podseidon/util/kube"
 	"github.com/kubewharf/podseidon/util/optional"
+	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 
 	"github.com/kubewharf/podseidon/aggregator/aggregator"
 	"github.com/kubewharf/podseidon/aggregator/observer"
@@ -295,6 +296,7 @@ func testReconcile(
 			},
 			DefaultInformerSyncTimeAlgo: "fake-clock",
 			Clock:                       clk,
+			SourceProvider:              pprutil.RequestSingleSourceProvider("core"),
 		})),
 	})
 

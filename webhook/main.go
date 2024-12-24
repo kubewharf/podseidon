@@ -19,6 +19,7 @@ import (
 	"github.com/kubewharf/podseidon/util/component"
 	healthzobserver "github.com/kubewharf/podseidon/util/healthz/observer"
 	"github.com/kubewharf/podseidon/util/o11y/metrics"
+	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 	pprutilobserver "github.com/kubewharf/podseidon/util/podprotector/observer"
 	"github.com/kubewharf/podseidon/util/pprof"
 	retrybatchobserver "github.com/kubewharf/podseidon/util/retrybatch/observer"
@@ -36,6 +37,6 @@ func main() {
 		pprutilobserver.ProvideInformer,
 		webhookobserver.Provide,
 		retrybatchobserver.Provide,
-		component.RequireDep(server.New(util.Empty{})),
+		component.RequireDep(server.New(server.Args{SourceProvider: pprutil.RequestSingleSourceProvider("core")})),
 	)
 }

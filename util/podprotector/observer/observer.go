@@ -31,6 +31,9 @@ type IndexedInformerObserver struct {
 	StartHandleEvent o11y.ObserveScopeFunc[types.NamespacedName]
 	EndHandleEvent   o11y.ObserveFunc[util.Empty]
 	HandleEventError o11y.ObserveFunc[HandleEventError]
+
+	UpdateSourceList      o11y.ObserveFunc[UpdateSourceList]
+	UpdateSourceListError o11y.ObserveFunc[UpdateSourceListError]
 }
 
 func (IndexedInformerObserver) ComponentName() string { return "ppr-informer" }
@@ -45,4 +48,14 @@ type HandleEventError struct {
 	Namespace string
 	Name      string
 	Err       error
+}
+
+type UpdateSourceList struct {
+	NewLength int
+	Additions int
+	Removals  int
+}
+
+type UpdateSourceListError struct {
+	Err error
 }
