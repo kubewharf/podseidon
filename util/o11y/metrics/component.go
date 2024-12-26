@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/kubewharf/podseidon/util/component"
@@ -41,6 +42,13 @@ func newRegistry() component.Declared[*registryState] {
 		func(RegistryArgs, *component.DepRequests) util.Empty { return util.Empty{} },
 		func(_ context.Context, _ RegistryArgs, options registryOptions, _ util.Empty) (*registryState, error) {
 			registry := prometheus.NewRegistry()
+
+			registry.MustRegister(
+				collectors.NewBuildInfoCollector(),
+				collectors.NewGoCollector(),
+				//nolint:exhaustruct // optional fields
+				collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+			)
 
 			heartbeatHandle := Register(
 				registry,
