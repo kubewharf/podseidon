@@ -20,12 +20,15 @@
     "volumeName" (printf "%s-webhook-core-cluster" .main.Release.Name)
     "argPrefix" "core"
   | include "podseidon.kubeconfig.volumes.yaml"}}
+
+{{- if .main.Values.webhook.tls.custom}}
 tls-bundle:
   mountPath: "/mnt/webhook-tls-bundle"
   readOnly: true
   source:
     secret:
       secretName: {{printf "%s-webhook-tls-bundle" .main.Release.Name | toJson}}
+{{- end}}
 {{- end}}
 
 {{- define "podseidon.webhook.args.yaml"}}
