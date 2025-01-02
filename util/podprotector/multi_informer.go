@@ -273,15 +273,16 @@ func startSourceInformer(
 	sourceName SourceName,
 	desc SourceDesc,
 	postHandlers []func(PodProtectorKey),
-) (retSourceState *sourceState, _ error) {
+) (*sourceState, error) {
 	informerFactory := podseidoninformers.NewSharedInformerFactory(desc.PodseidonClient, 0)
 	pprInformer := informerFactory.Podseidon().V1alpha1().PodProtectors()
 	selectorIndex := NewSelectorIndex()
 
 	ctx, cancelFunc := context.WithCancel(ctx)
+	informerStarted := false
 
 	defer func() {
-		if retSourceState == nil {
+		if !informerStarted {
 			cancelFunc()
 		}
 	}()
@@ -311,6 +312,12 @@ func startSourceInformer(
 		},
 	); err != nil {
 		return nil, errors.TagWrapf("SetupPprInformer", err, "create ppr informer for cell")
+	}
+
+	{
+		informerFactory.Start(ctx.Done())
+
+		informerStarted = true
 	}
 
 	return &sourceState{

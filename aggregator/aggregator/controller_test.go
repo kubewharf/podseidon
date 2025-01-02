@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/podseidon/util/errors"
 	"github.com/kubewharf/podseidon/util/iter"
 	"github.com/kubewharf/podseidon/util/kube"
+	o11yklog "github.com/kubewharf/podseidon/util/o11y/klog"
 	"github.com/kubewharf/podseidon/util/optional"
 	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 
@@ -281,7 +282,8 @@ func testReconcile(
 
 	coreClient := tc.CoreClient()
 
-	cmd.MockStartup(ctx, []func(*component.DepRequests){
+	cmd.MockStartupWithCliArgs(ctx, []func(*component.DepRequests){
+		o11yklog.RequestKlogArgs,
 		component.ApiOnly("core-kube", coreClient),
 		component.ApiOnly("worker-kube", tc.WorkerClient(clk)),
 		component.ApiOnly("observer-aggregator", obs),
@@ -298,7 +300,7 @@ func testReconcile(
 			Clock:                       clk,
 			SourceProvider:              pprutil.RequestSingleSourceProvider("core"),
 		})),
-	})
+	}, []string{"--klog-v=6"})
 
 	waitAndAssert(ctx, t, coreClient, reconcileCh, tc.ExpectInitial)
 

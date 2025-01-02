@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/podseidon/util/o11y"
 	"github.com/kubewharf/podseidon/util/optional"
 	pprutil "github.com/kubewharf/podseidon/util/podprotector"
+	"github.com/kubewharf/podseidon/util/util"
 
 	"github.com/kubewharf/podseidon/webhook/handler"
 	"github.com/kubewharf/podseidon/webhook/observer"
@@ -187,7 +188,7 @@ var New = utilhttp.DeclareServer(
 		Join:         nil,
 		HealthChecks: nil,
 	},
-	func(Args, Options, Deps, *State) Args { return Args{} },
+	func(Args, Options, Deps, *State) util.Empty { return util.Empty{} },
 )
 
 type Args struct {
