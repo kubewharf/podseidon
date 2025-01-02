@@ -91,7 +91,7 @@ type EndHandlePodInPpr struct {
 }
 
 type StartExecuteRetry struct {
-	Key  types.NamespacedName
+	Key  pprutil.PodProtectorKey
 	Args []BatchArg
 }
 

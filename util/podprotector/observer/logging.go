@@ -43,6 +43,18 @@ func ProvideInformerLogging() component.Declared[IndexedInformerObserver] {
 						WithCallDepth(1).
 						Error(arg.Err, "handle reflector event", "namespace", arg.Namespace, "name", arg.Name)
 				},
+				UpdateSourceList: func(ctx context.Context, arg UpdateSourceList) {
+					if arg.Additions != 0 || arg.Removals != 0 {
+						klog.FromContext(ctx).WithValues(
+							"additions", arg.Additions,
+							"removals", arg.Removals,
+							"newLength", arg.NewLength,
+						).WithCallDepth(1).Info("PodProtector source list updated")
+					}
+				},
+				UpdateSourceListError: func(ctx context.Context, arg UpdateSourceListError) {
+					klog.FromContext(ctx).WithCallDepth(1).Error(arg.Err, "updating source list")
+				},
 			}
 		},
 	)

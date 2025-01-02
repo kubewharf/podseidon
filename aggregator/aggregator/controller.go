@@ -31,7 +31,6 @@ import (
 	"k8s.io/utils/clock"
 
 	podseidonv1a1 "github.com/kubewharf/podseidon/apis/v1alpha1"
-	podseidonv1a1client "github.com/kubewharf/podseidon/client/clientset/versioned/typed/apis/v1alpha1"
 
 	"github.com/kubewharf/podseidon/util/component"
 	"github.com/kubewharf/podseidon/util/defaultconfig"
@@ -87,25 +86,19 @@ var NewController = component.Declare(
 	},
 	func(args ControllerArgs, requests *component.DepRequests) ControllerDeps {
 		return ControllerDeps{
-			coreClient: component.DepPtr(
-				requests,
-				kube.NewClient(kube.ClientArgs{ClusterName: constants.CoreClusterName}),
-			),
+			sourceProvider: args.SourceProvider(requests),
 			workerClient: component.DepPtr(
 				requests,
 				kube.NewClient(kube.ClientArgs{ClusterName: constants.WorkerClusterName}),
 			),
-			pprInformer: component.DepPtr(
-				requests,
-				pprutil.NewIndexedInformer(pprutil.IndexedInformerArgs{
-					ClusterName:   constants.CoreClusterName,
-					InformerPhase: "leader",
-					Elector:       optional.Some(constants.ElectorArgs),
-				}),
-			),
+			pprInformer: component.DepPtr(requests, pprutil.NewIndexedInformer(pprutil.IndexedInformerArgs{
+				Suffix:         "",
+				SourceProvider: args.SourceProvider,
+				Elector:        optional.Some(constants.ElectorArgs),
+			})),
 			observer: o11y.Request[observer.Observer](requests),
 			elector:  component.DepPtr(requests, kube.NewElector(constants.ElectorArgs)),
-			worker: component.DepPtr(requests, worker.New[types.NamespacedName](
+			worker: component.DepPtr(requests, worker.New[pprutil.PodProtectorKey](
 				"aggregator",
 				args.Clock,
 			)),
@@ -143,7 +136,7 @@ var NewController = component.Declare(
 	},
 )
 
-func DefaultArg() component.Declared[util.Empty] {
+func DefaultArg(sourceProviderRequest pprutil.SourceProviderRequest) component.Declared[util.Empty] {
 	return NewController(ControllerArgs{
 		InformerSyncTimeAlgos: map[string]synctime.PodInterpreter{
 			"clock":  &synctime.ClockPodInterpreter{Clock: clock.RealClock{}},
@@ -151,6 +144,7 @@ func DefaultArg() component.Declared[util.Empty] {
 		},
 		DefaultInformerSyncTimeAlgo: "clock",
 		Clock:                       clock.RealClock{},
+		SourceProvider:              sourceProviderRequest,
 	})
 }
 
@@ -158,6 +152,8 @@ type ControllerArgs struct {
 	InformerSyncTimeAlgos       map[string]synctime.PodInterpreter
 	DefaultInformerSyncTimeAlgo string
 	Clock                       clock.WithTicker
+
+	SourceProvider pprutil.SourceProviderRequest
 }
 
 type ControllerOptions struct {
@@ -169,13 +165,13 @@ type ControllerOptions struct {
 }
 
 type ControllerDeps struct {
-	coreClient    component.Dep[*kube.Client]
-	workerClient  component.Dep[*kube.Client]
-	pprInformer   component.Dep[pprutil.IndexedInformer]
-	elector       component.Dep[*kube.Elector]
-	observer      component.Dep[observer.Observer]
-	worker        component.Dep[worker.Api[types.NamespacedName]]
-	defaultConfig component.Dep[*defaultconfig.Options]
+	sourceProvider func() pprutil.SourceProvider
+	workerClient   component.Dep[*kube.Client]
+	pprInformer    component.Dep[pprutil.IndexedInformer]
+	elector        component.Dep[*kube.Elector]
+	observer       component.Dep[observer.Observer]
+	worker         component.Dep[worker.Api[pprutil.PodProtectorKey]]
+	defaultConfig  component.Dep[*defaultconfig.Options]
 }
 
 type ControllerState struct {
@@ -194,9 +190,9 @@ type Sets = *labelindex.Locked[
 type Caches struct {
 	podIndex Sets
 
-	pprClient   podseidonv1a1client.PodProtectorsGetter
-	podLister   corev1listers.PodLister
-	pprInformer pprutil.IndexedInformer
+	sourceProvider pprutil.SourceProvider
+	podLister      corev1listers.PodLister
+	pprInformer    pprutil.IndexedInformer
 
 	informerSyncReader synctime.Reader
 
@@ -237,7 +233,7 @@ func initController(
 	state := &ControllerState{
 		caches: Caches{
 			podIndex:              podIndex,
-			pprClient:             deps.coreClient.Get().PodseidonClientSet().PodseidonV1alpha1(),
+			sourceProvider:        deps.sourceProvider(),
 			podLister:             podLister,
 			pprInformer:           deps.pprInformer.Get(),
 			informerSyncReader:    informerSyncReader,
@@ -248,7 +244,7 @@ func initController(
 
 	queue := deps.worker.Get()
 	queue.SetExecutor(
-		func(ctx context.Context, item types.NamespacedName) error {
+		func(ctx context.Context, item pprutil.PodProtectorKey) error {
 			return reconcile(ctx, args, options, deps, queue, &state.caches, item)
 		},
 		map[string]worker.Prereq{
@@ -258,8 +254,8 @@ func initController(
 	)
 	queue.SetBeforeStart(deps.elector.Get().Await)
 
-	deps.pprInformer.Get().AddPostHandler(func(nsName types.NamespacedName) {
-		queue.EnqueueDelayed(nsName, *deps.defaultConfig.Get().AggregationRate)
+	deps.pprInformer.Get().AddPostHandler(func(key pprutil.PodProtectorKey) {
+		queue.EnqueueDelayed(key, *deps.defaultConfig.Get().AggregationRate)
 	})
 
 	return state, nil
@@ -361,7 +357,7 @@ type podEventHandler struct {
 	podIndex    Sets
 	pprInformer pprutil.IndexedInformer
 
-	queue              worker.Api[types.NamespacedName]
+	queue              worker.Api[pprutil.PodProtectorKey]
 	notifyInformerSync synctime.Notifier
 	nextEventPool      *nextEventPool
 }
@@ -395,11 +391,11 @@ func (handler *podEventHandler) handle(ctx context.Context, obj any, stillPresen
 		return
 	}
 
-	nsName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}
+	podNsName := types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}
 
 	ctx, cancelFunc := handler.observer.StartEnqueue(ctx, observer.StartEnqueue{
-		Namespace: nsName.Namespace,
-		Name:      nsName.Name,
+		Namespace: podNsName.Namespace,
+		Name:      podNsName.Name,
 		Kind:      "Pod",
 	})
 	defer cancelFunc()
@@ -407,15 +403,15 @@ func (handler *podEventHandler) handle(ctx context.Context, obj any, stillPresen
 	defer handler.observer.EndEnqueue(ctx, observer.EndEnqueue{})
 
 	if stillPresent {
-		handler.podIndex.Track(nsName, pod.Labels)
+		handler.podIndex.Track(podNsName, pod.Labels)
 	} else {
-		handler.podIndex.Untrack(nsName)
+		handler.podIndex.Untrack(podNsName)
 	}
 
 	if err := handler.notifyInformerSync(pod); err != nil {
 		handler.observer.EnqueueError(ctx, observer.EnqueueError{
-			Namespace: nsName.Namespace,
-			Name:      nsName.Name,
+			Namespace: podNsName.Namespace,
+			Name:      podNsName.Name,
 			Err:       err,
 		})
 
@@ -462,9 +458,9 @@ func reconcile(
 	args ControllerArgs,
 	options ControllerOptions,
 	deps ControllerDeps,
-	queue worker.Api[types.NamespacedName],
+	queue worker.Api[pprutil.PodProtectorKey],
 	caches *Caches,
-	item types.NamespacedName,
+	item pprutil.PodProtectorKey,
 ) error {
 	obs := deps.observer.Get()
 
@@ -508,9 +504,9 @@ func tryReconcile(
 	ctx context.Context,
 	options reconcileOptions,
 	obs observer.Observer,
-	queue worker.Api[types.NamespacedName],
+	queue worker.Api[pprutil.PodProtectorKey],
 	caches *Caches,
-	queueItem types.NamespacedName,
+	queueItem pprutil.PodProtectorKey,
 ) observer.EndReconcile {
 	pprOpt, err := caches.pprInformer.Get(queueItem)
 	if err != nil {
@@ -588,8 +584,8 @@ func tryReconcile(
 		computedConfig := options.defaultConfig.Compute(optional.Some(ppr.Spec.AdmissionHistoryConfig))
 		pprutil.Summarize(computedConfig, ppr)
 
-		_, err := caches.pprClient.PodProtectors(ppr.Namespace).
-			UpdateStatus(ctx, ppr, metav1.UpdateOptions{})
+		err := caches.sourceProvider.
+			UpdateStatus(ctx, queueItem.SourceName, ppr)
 		if err != nil {
 			return observer.EndReconcile{
 				Err: errors.TagWrapf(
@@ -727,7 +723,7 @@ func isPodAvailable(
 // Clean up obsolete admission history observed by the current aggregation.
 func updateLastEventTime(
 	caches *Caches,
-	queueItem types.NamespacedName,
+	queueItem pprutil.PodProtectorKey,
 	outputStatus *podseidonv1a1.PodProtectorCellStatus,
 	outputChanged *haschange.Changed,
 	lastEventTime time.Time,

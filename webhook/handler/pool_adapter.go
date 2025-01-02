@@ -20,12 +20,10 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 
 	podseidonv1a1 "github.com/kubewharf/podseidon/apis/v1alpha1"
-	podseidonv1a1client "github.com/kubewharf/podseidon/client/clientset/versioned/typed/apis/v1alpha1"
 
 	"github.com/kubewharf/podseidon/util/defaultconfig"
 	"github.com/kubewharf/podseidon/util/errors"
@@ -41,12 +39,12 @@ import (
 type BatchArg = observer.BatchArg
 
 type PoolAdapter struct {
-	client        podseidonv1a1client.PodseidonV1alpha1Interface
-	pprInformer   pprutil.IndexedInformer
-	observer      observer.Observer
-	clock         clock.Clock
-	retryBackoff  func() time.Duration
-	defaultConfig *defaultconfig.Options
+	sourceProvider pprutil.SourceProvider
+	pprInformer    pprutil.IndexedInformer
+	observer       observer.Observer
+	clock          clock.Clock
+	retryBackoff   func() time.Duration
+	defaultConfig  *defaultconfig.Options
 }
 
 func (PoolAdapter) PoolName() string {
@@ -55,7 +53,7 @@ func (PoolAdapter) PoolName() string {
 
 func (adapter PoolAdapter) Execute(
 	ctx context.Context,
-	key types.NamespacedName,
+	key pprutil.PodProtectorKey,
 	args []BatchArg,
 ) retrybatch.ExecuteResult[pprutil.DisruptionResult] {
 	ctx, cancelFunc := adapter.observer.StartExecuteRetry(
@@ -93,7 +91,7 @@ func (adapter PoolAdapter) Execute(
 // "uninit" values must not be used.
 func (adapter PoolAdapter) tryExecute(
 	ctx context.Context,
-	key types.NamespacedName,
+	key pprutil.PodProtectorKey,
 	args []BatchArg,
 ) retrybatch.ExecuteResult[pprutil.DisruptionResult] {
 	pprOptional, err := adapter.pprInformer.Get(key)
@@ -165,7 +163,7 @@ func (adapter PoolAdapter) tryExecute(
 
 	pprutil.Summarize(config, ppr)
 
-	if _, err := adapter.client.PodProtectors(key.Namespace).UpdateStatus(ctx, ppr, metav1.UpdateOptions{}); err != nil {
+	if err := adapter.sourceProvider.UpdateStatus(ctx, key.SourceName, ppr); err != nil {
 		if apierrors.IsConflict(err) {
 			return retrybatch.ExecuteResultNeedRetry[pprutil.DisruptionResult](
 				adapter.retryBackoff(),

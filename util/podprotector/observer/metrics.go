@@ -31,15 +31,19 @@ func ProvideInformerMetrics() component.Declared[IndexedInformerObserver] {
 	return o11y.Provide(
 		metrics.MakeObserverDeps,
 		func(deps metrics.ObserverDeps) IndexedInformerObserver {
-			type webhookInformerEventCtxKey struct{}
+			type informerEventCtxKey struct{}
 
-			type webhookInformerEventCtxValue struct {
+			type informerEventCtxValue struct {
 				start time.Time
 			}
 
-			type webhookInformerEventTags struct{}
+			type informerEventTags struct{}
 
-			type webhookInformerEventErrorTags struct {
+			type informerEventErrorTags struct {
+				Error string
+			}
+
+			type sourceListEventErrorTags struct {
 				Error string
 			}
 
@@ -48,7 +52,7 @@ func ProvideInformerMetrics() component.Declared[IndexedInformerObserver] {
 				"ppr_enqueue",
 				"Informer event handler for PodProtector, including SetTrie maintenance.",
 				metrics.FunctionDurationHistogram(),
-				metrics.NewReflectTags[webhookInformerEventTags](),
+				metrics.NewReflectTags[informerEventTags](),
 			)
 
 			indexErrorHandle := metrics.Register(
@@ -56,15 +60,31 @@ func ProvideInformerMetrics() component.Declared[IndexedInformerObserver] {
 				"ppr_index_error",
 				"Error events during PodProtector informer event handling.",
 				metrics.IntCounter(),
-				metrics.NewReflectTags[webhookInformerEventErrorTags](),
+				metrics.NewReflectTags[informerEventErrorTags](),
+			)
+
+			sourceListLengthHandle := metrics.Register(
+				deps.Registry(),
+				"ppr_source_list_length",
+				"Number of PodProtector source clusters",
+				metrics.IntGauge(),
+				metrics.NewReflectTags[util.Empty](),
+			)
+
+			sourceListErrorHandle := metrics.Register(
+				deps.Registry(),
+				"ppr_source_list_error",
+				"Error events from watching SourceProvider",
+				metrics.IntCounter(),
+				metrics.NewReflectTags[sourceListEventErrorTags](),
 			)
 
 			return IndexedInformerObserver{
 				StartHandleEvent: func(ctx context.Context, _ types.NamespacedName) (context.Context, context.CancelFunc) {
 					ctx = context.WithValue(
 						ctx,
-						webhookInformerEventCtxKey{},
-						webhookInformerEventCtxValue{
+						informerEventCtxKey{},
+						informerEventCtxValue{
 							start: time.Now(),
 						},
 					)
@@ -72,13 +92,21 @@ func ProvideInformerMetrics() component.Declared[IndexedInformerObserver] {
 					return ctx, util.NoOp
 				},
 				EndHandleEvent: func(ctx context.Context, _ util.Empty) {
-					ctxValue := ctx.Value(webhookInformerEventCtxKey{}).(webhookInformerEventCtxValue)
+					ctxValue := ctx.Value(informerEventCtxKey{}).(informerEventCtxValue)
 					duration := time.Since(ctxValue.start)
 
-					informerEventHandle.Emit(duration, webhookInformerEventTags{})
+					informerEventHandle.Emit(duration, informerEventTags{})
 				},
 				HandleEventError: func(_ context.Context, arg HandleEventError) {
-					indexErrorHandle.Emit(1, webhookInformerEventErrorTags{
+					indexErrorHandle.Emit(1, informerEventErrorTags{
+						Error: errors.SerializeTags(arg.Err),
+					})
+				},
+				UpdateSourceList: func(_ context.Context, arg UpdateSourceList) {
+					sourceListLengthHandle.Emit(arg.NewLength, util.Empty{})
+				},
+				UpdateSourceListError: func(_ context.Context, arg UpdateSourceListError) {
+					sourceListErrorHandle.Emit(1, sourceListEventErrorTags{
 						Error: errors.SerializeTags(arg.Err),
 					})
 				},

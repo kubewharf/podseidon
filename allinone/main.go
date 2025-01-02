@@ -20,6 +20,7 @@ import (
 	healthzobserver "github.com/kubewharf/podseidon/util/healthz/observer"
 	kubeobserver "github.com/kubewharf/podseidon/util/kube/observer"
 	"github.com/kubewharf/podseidon/util/o11y/metrics"
+	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 	pprutilobserver "github.com/kubewharf/podseidon/util/podprotector/observer"
 	"github.com/kubewharf/podseidon/util/pprof"
 	"github.com/kubewharf/podseidon/util/util"
@@ -48,7 +49,7 @@ func main() {
 		generatorobserver.Provide,
 		aggregatorobserver.Provide,
 		webhookobserver.Provide,
-		component.RequireDep(aggregator.DefaultArg()),
+		component.RequireDep(aggregator.DefaultArg(pprutil.RequestSingleSourceProvider("core"))),
 		component.RequireDep(updatetrigger.New(updatetrigger.Args{})),
 		component.RequireDep(generator.NewController(
 			generator.ControllerArgs{
@@ -58,6 +59,6 @@ func main() {
 			},
 		)),
 		component.RequireDep(monitor.New(monitor.Args{})),
-		component.RequireDep(webhookserver.New(util.Empty{})),
+		component.RequireDep(webhookserver.New(webhookserver.Args{SourceProvider: pprutil.RequestSingleSourceProvider("core")})),
 	)
 }
