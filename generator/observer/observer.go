@@ -96,6 +96,13 @@ type MonitorWorkloads struct {
 	// Number of workload objects managed by this generator with non-zero minAvailable.
 	NumNonZeroWorkloads int
 
+	// Number of workload objects managed by this generator with
+	// the number of aggregated replicas not less than the minAvailable requirement.
+	// This is useful for detecting cases if aggregator is not properly deployed
+	// or as a less sensitive alternative of `NumAvailableWorkloads`
+	// to detect pods not getting created at all.
+	NumMinCreatedWorkloads int
+
 	// Number of workload objects managed by this generator with minAvailable satisfied.
 	NumAvailableWorkloads int
 
@@ -123,6 +130,7 @@ type MonitorWorkloads struct {
 func (dest *MonitorWorkloads) Add(delta MonitorWorkloads) {
 	dest.NumWorkloads += delta.NumWorkloads
 	dest.NumNonZeroWorkloads += delta.NumNonZeroWorkloads
+	dest.NumMinCreatedWorkloads += delta.NumMinCreatedWorkloads
 	dest.NumAvailableWorkloads += delta.NumAvailableWorkloads
 	dest.MinAvailable += delta.MinAvailable
 	dest.TotalReplicas += delta.TotalReplicas
@@ -135,6 +143,7 @@ func (dest *MonitorWorkloads) Add(delta MonitorWorkloads) {
 func (dest *MonitorWorkloads) Subtract(delta MonitorWorkloads) {
 	dest.NumWorkloads -= delta.NumWorkloads
 	dest.NumNonZeroWorkloads -= delta.NumNonZeroWorkloads
+	dest.NumMinCreatedWorkloads -= delta.NumMinCreatedWorkloads
 	dest.NumAvailableWorkloads -= delta.NumAvailableWorkloads
 	dest.MinAvailable -= delta.MinAvailable
 	dest.TotalReplicas -= delta.TotalReplicas

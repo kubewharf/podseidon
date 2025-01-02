@@ -89,6 +89,13 @@ func ProvideMetrics() component.Declared[Observer] {
 					func(status MonitorWorkloads) int { return status.NumNonZeroWorkloads },
 				),
 				metrics.NewField(
+					"num_min_created_workloads",
+					"Number of workload objects managed by this generator with "+
+						"the number of aggregated replicas not less than the minAvailable requirement",
+					metrics.IntGauge(),
+					func(status MonitorWorkloads) int { return status.NumMinCreatedWorkloads },
+				),
+				metrics.NewField(
 					"num_available_workloads",
 					"Number of workload objects managed by this generator with minAvailable satisfied",
 					metrics.IntGauge(),
