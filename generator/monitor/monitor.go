@@ -134,6 +134,11 @@ func pprToStatus(ppr *podseidonv1a1.PodProtector) observer.MonitorWorkloads {
 		isNonZero = 1
 	}
 
+	isMinCreated := 0
+	if ppr.Status.Summary.Total >= ppr.Spec.MinAvailable {
+		isMinCreated = 1
+	}
+
 	isFullyAvailable := 0
 	if ppr.Status.Summary.AggregatedAvailable >= ppr.Spec.MinAvailable {
 		isFullyAvailable = 1
@@ -142,6 +147,7 @@ func pprToStatus(ppr *podseidonv1a1.PodProtector) observer.MonitorWorkloads {
 	return observer.MonitorWorkloads{
 		NumWorkloads:                1,
 		NumNonZeroWorkloads:         isNonZero,
+		NumMinCreatedWorkloads:      isMinCreated,
 		NumAvailableWorkloads:       isFullyAvailable,
 		MinAvailable:                int64(ppr.Spec.MinAvailable),
 		TotalReplicas:               int64(ppr.Status.Summary.Total),
