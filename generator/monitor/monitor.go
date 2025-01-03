@@ -86,12 +86,18 @@ var New = component.Declare[Args, Options, Deps, State, util.Empty](
 	component.Lifecycle[Args, Options, Deps, State]{
 		Start: func(ctx context.Context, _ *Args, options *Options, deps *Deps, state *State) error {
 			if *options.Enable {
-				deps.observer.Get().MonitorWorkloads(ctx, util.Empty{}, func() observer.MonitorWorkloads {
-					state.statusMu.Lock()
-					defer state.statusMu.Unlock()
+				go func() {
+					deps.podseidonInformers.Get().WaitForCacheSync(ctx.Done())
 
-					return state.status
-				})
+					if ctx.Err() == nil {
+						deps.observer.Get().MonitorWorkloads(ctx, util.Empty{}, func() observer.MonitorWorkloads {
+							state.statusMu.Lock()
+							defer state.statusMu.Unlock()
+
+							return state.status
+						})
+					}
+				}()
 			}
 
 			return nil
