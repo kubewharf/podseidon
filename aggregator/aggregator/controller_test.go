@@ -46,9 +46,8 @@ import (
 	"github.com/kubewharf/podseidon/aggregator/synctime"
 )
 
+//nolint:paralleltest // klog InitFlags cannot be called in parallel
 func TestReconcileEmpty(t *testing.T) {
-	t.Parallel()
-
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 0,
@@ -72,9 +71,8 @@ func TestReconcileEmpty(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // klog InitFlags cannot be called in parallel
 func TestReconcileAllAvailable(t *testing.T) {
-	t.Parallel()
-
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 0,
@@ -98,9 +96,8 @@ func TestReconcileAllAvailable(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // klog InitFlags cannot be called in parallel
 func TestReconcileSomeReadyButUnavailable(t *testing.T) {
-	t.Parallel()
-
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 3,
