@@ -102,6 +102,7 @@ func TestMonitor(t *testing.T) {
 		Expect: observer.MonitorWorkloads{
 			NumWorkloads:                3,
 			NumNonZeroWorkloads:         2,
+			NumMinCreatedWorkloads:      3,
 			NumAvailableWorkloads:       2,
 			MinAvailable:                10 + 100,
 			TotalReplicas:               13 + 200,
@@ -122,6 +123,7 @@ func TestMonitor(t *testing.T) {
 		Expect: observer.MonitorWorkloads{
 			NumWorkloads:                2,
 			NumNonZeroWorkloads:         1,
+			NumMinCreatedWorkloads:      2,
 			NumAvailableWorkloads:       1,
 			MinAvailable:                200,
 			TotalReplicas:               200,
