@@ -26,13 +26,11 @@ import (
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/utils/clock"
 
 	podseidon "github.com/kubewharf/podseidon/apis"
-	podseidonv1a1client "github.com/kubewharf/podseidon/client/clientset/versioned/typed/apis/v1alpha1"
 
 	"github.com/kubewharf/podseidon/util/component"
 	"github.com/kubewharf/podseidon/util/defaultconfig"
@@ -47,8 +45,6 @@ import (
 
 	"github.com/kubewharf/podseidon/webhook/observer"
 )
-
-const CoreClusterName kube.ClusterName = "core"
 
 const batchGoroutineIdleTimeout = time.Second
 
@@ -73,18 +69,15 @@ var New = component.Declare(
 			),
 		}
 	},
-	func(_ Args, requests *component.DepRequests) Deps {
+	func(args Args, requests *component.DepRequests) Deps {
 		return Deps{
-			coreCluster: component.DepPtr(
-				requests,
-				kube.NewClient(kube.ClientArgs{ClusterName: CoreClusterName}),
-			),
+			getSourceProvider: args.SourceProvider(requests),
 			pprInformer: component.DepPtr(
 				requests,
 				pprutil.NewIndexedInformer(pprutil.IndexedInformerArgs{
-					ClusterName:   CoreClusterName,
-					InformerPhase: "webhook",
-					Elector:       optional.None[kube.ElectorArgs](),
+					Suffix:         "",
+					SourceProvider: args.SourceProvider,
+					Elector:        optional.None[kube.ElectorArgs](),
 				}),
 			),
 			observer:      o11y.Request[observer.Observer](requests),
@@ -93,20 +86,20 @@ var New = component.Declare(
 		}
 	},
 	func(_ context.Context, _ Args, options Options, deps Deps) (*State, error) {
-		client := deps.coreCluster.Get().PodseidonClientSet().PodseidonV1alpha1()
+		sourceProvider := deps.getSourceProvider()
 
-		poolReader, poolWriter := util.NewLateInit[retrybatch.Pool[types.NamespacedName, BatchArg, pprutil.DisruptionResult]]()
+		poolReader, poolWriter := util.NewLateInit[retrybatch.Pool[pprutil.PodProtectorKey, BatchArg, pprutil.DisruptionResult]]()
 
 		return &State{
-			client:            client,
+			sourceProvider:    sourceProvider,
 			informerHasSynced: deps.pprInformer.Get().HasSynced,
 			poolConfig: retrybatch.NewPool(
 				deps.retrybatchObs.Get(),
 				PoolAdapter{
-					client:      client,
-					pprInformer: deps.pprInformer.Get(),
-					observer:    deps.observer.Get(),
-					clock:       clock.RealClock{},
+					sourceProvider: sourceProvider,
+					pprInformer:    deps.pprInformer.Get(),
+					observer:       deps.observer.Get(),
+					clock:          clock.RealClock{},
 					retryBackoff: func() time.Duration {
 						return jitterDuration(
 							*options.RetryBackoffBase,
@@ -142,7 +135,9 @@ var New = component.Declare(
 	},
 )
 
-type Args struct{}
+type Args struct {
+	SourceProvider pprutil.SourceProviderRequest
+}
 
 type Options struct {
 	ColdStartDelay   *time.Duration
@@ -151,20 +146,20 @@ type Options struct {
 }
 
 type Deps struct {
-	coreCluster   component.Dep[*kube.Client]
-	pprInformer   component.Dep[pprutil.IndexedInformer]
-	observer      component.Dep[observer.Observer]
-	retrybatchObs component.Dep[retrybatchobserver.Observer]
-	defaultConfig component.Dep[*defaultconfig.Options]
+	getSourceProvider func() pprutil.SourceProvider
+	pprInformer       component.Dep[pprutil.IndexedInformer]
+	observer          component.Dep[observer.Observer]
+	retrybatchObs     component.Dep[retrybatchobserver.Observer]
+	defaultConfig     component.Dep[*defaultconfig.Options]
 }
 
 type State struct {
-	client            podseidonv1a1client.PodseidonV1alpha1Interface
+	sourceProvider    pprutil.SourceProvider
 	informerHasSynced cache.InformerSynced
 
-	poolConfig retrybatch.PoolConfig[types.NamespacedName, BatchArg, pprutil.DisruptionResult]
-	poolWriter util.LateInitWriter[retrybatch.Pool[types.NamespacedName, BatchArg, pprutil.DisruptionResult]]
-	poolReader util.LateInitReader[retrybatch.Pool[types.NamespacedName, BatchArg, pprutil.DisruptionResult]]
+	poolConfig retrybatch.PoolConfig[pprutil.PodProtectorKey, BatchArg, pprutil.DisruptionResult]
+	poolWriter util.LateInitWriter[retrybatch.Pool[pprutil.PodProtectorKey, BatchArg, pprutil.DisruptionResult]]
+	poolReader util.LateInitReader[retrybatch.Pool[pprutil.PodProtectorKey, BatchArg, pprutil.DisruptionResult]]
 }
 
 type Api struct {
@@ -290,7 +285,7 @@ func (api Api) Handle(
 
 func (api Api) handlePodInPpr(
 	ctx context.Context,
-	pprRef types.NamespacedName,
+	pprRef pprutil.PodProtectorKey,
 	pod *corev1.Pod,
 	user authenticationv1.UserInfo,
 	cellId string,
@@ -336,7 +331,7 @@ func isRelevantRequest(req *admissionv1.AdmissionRequest) bool {
 
 func (api Api) determineRejection(
 	ctx context.Context,
-	pprRef types.NamespacedName,
+	pprRef pprutil.PodProtectorKey,
 	pod *corev1.Pod,
 	cellId string,
 ) HandleResult {

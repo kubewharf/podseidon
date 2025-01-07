@@ -19,11 +19,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
 	"github.com/kubewharf/podseidon/util/optional"
+	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 )
 
 // Pool of items that need to reconcile upon receiving a new informer event.
@@ -44,7 +44,7 @@ type nextEventPool struct {
 	lastDrain atomic.Pointer[time.Time]
 
 	itemsMu sync.Mutex
-	items   sets.Set[types.NamespacedName]
+	items   sets.Set[pprutil.PodProtectorKey]
 }
 
 func newNextEventPool() *nextEventPool {
@@ -52,11 +52,11 @@ func newNextEventPool() *nextEventPool {
 		undrainedTime: atomic.Pointer[time.Time]{},
 		lastDrain:     atomic.Pointer[time.Time]{},
 		itemsMu:       sync.Mutex{},
-		items:         sets.New[types.NamespacedName](),
+		items:         sets.New[pprutil.PodProtectorKey](),
 	}
 }
 
-func (pool *nextEventPool) Push(item types.NamespacedName) {
+func (pool *nextEventPool) Push(item pprutil.PodProtectorKey) {
 	pool.itemsMu.Lock()
 	defer pool.itemsMu.Unlock()
 
@@ -69,7 +69,7 @@ func (pool *nextEventPool) Push(item types.NamespacedName) {
 }
 
 func (pool *nextEventPool) Drain() (
-	_objects sets.Set[types.NamespacedName],
+	_objects sets.Set[pprutil.PodProtectorKey],
 	_objectLatency time.Duration,
 	_sinceLastDrain optional.Optional[time.Duration],
 ) {
@@ -77,7 +77,7 @@ func (pool *nextEventPool) Drain() (
 	defer pool.itemsMu.Unlock()
 
 	old := pool.items
-	pool.items = sets.New[types.NamespacedName]()
+	pool.items = sets.New[pprutil.PodProtectorKey]()
 
 	undrainedTime := pool.undrainedTime.Swap(nil)
 	lastDrain := pool.lastDrain.Swap(ptr.To(time.Now()))

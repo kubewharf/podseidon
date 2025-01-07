@@ -20,6 +20,7 @@ import (
 	healthzobserver "github.com/kubewharf/podseidon/util/healthz/observer"
 	kubeobserver "github.com/kubewharf/podseidon/util/kube/observer"
 	"github.com/kubewharf/podseidon/util/o11y/metrics"
+	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 	pprutilobserver "github.com/kubewharf/podseidon/util/podprotector/observer"
 	"github.com/kubewharf/podseidon/util/pprof"
 	"github.com/kubewharf/podseidon/util/util"
@@ -39,7 +40,7 @@ func main() {
 		kubeobserver.ProvideElector,
 		aggregatorobserver.Provide,
 		pprutilobserver.ProvideInformer,
-		component.RequireDep(aggregator.DefaultArg()),
+		component.RequireDep(aggregator.DefaultArg(pprutil.RequestSingleSourceProvider("core"))),
 		component.RequireDep(updatetrigger.New(updatetrigger.Args{})),
 	)
 }

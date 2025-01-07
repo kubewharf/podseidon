@@ -119,13 +119,13 @@ func tryRun(requests []func(*component.DepRequests)) error {
 // but does not accept configuring flags, does not expose a health check server
 // and does not block until shutdown.
 // Returns as soon as startup completes to allow the caller to orchestrate integration tests.
-func MockStartup(ctx context.Context, requests []func(*component.DepRequests)) component.ApiMap {
+func MockStartupWithCliArgs(ctx context.Context, requests []func(*component.DepRequests), cliArgs []string) component.ApiMap {
 	components := component.ResolveList(requests)
 
 	fs := new(pflag.FlagSet)
 	setupFlags(components, fs)
 
-	if err := fs.Parse([]string{}); err != nil {
+	if err := fs.Parse(cliArgs); err != nil {
 		panic(err)
 	}
 
@@ -138,6 +138,10 @@ func MockStartup(ctx context.Context, requests []func(*component.DepRequests)) c
 	}
 
 	return component.NamedComponentsToApiMap(components)
+}
+
+func MockStartup(ctx context.Context, requests []func(*component.DepRequests)) component.ApiMap {
+	return MockStartupWithCliArgs(ctx, requests, []string{})
 }
 
 func setupFlags(components []component.NamedComponent, fs *pflag.FlagSet) {
