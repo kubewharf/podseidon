@@ -33,19 +33,11 @@ type version struct {
 }
 
 // New returns a new Interface.
-func New(
-	f internalinterfaces.SharedInformerFactory,
-	namespace string,
-	tweakListOptions internalinterfaces.TweakListOptionsFunc,
-) Interface {
+func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakListOptions internalinterfaces.TweakListOptionsFunc) Interface {
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
 // PodProtectors returns a PodProtectorInformer.
 func (v *version) PodProtectors() PodProtectorInformer {
-	return &podProtectorInformer{
-		factory:          v.factory,
-		namespace:        v.namespace,
-		tweakListOptions: v.tweakListOptions,
-	}
+	return &podProtectorInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

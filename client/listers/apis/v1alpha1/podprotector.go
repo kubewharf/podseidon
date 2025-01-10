@@ -17,11 +17,11 @@
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/listers"
-	"k8s.io/client-go/tools/cache"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
 
-	v1alpha1 "github.com/kubewharf/podseidon/apis/v1alpha1"
+	apisv1alpha1 "github.com/kubewharf/podseidon/apis/v1alpha1"
 )
 
 // PodProtectorLister helps list PodProtectors.
@@ -29,7 +29,7 @@ import (
 type PodProtectorLister interface {
 	// List lists all PodProtectors in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.PodProtector, err error)
+	List(selector labels.Selector) (ret []*apisv1alpha1.PodProtector, err error)
 	// PodProtectors returns an object that can list and get PodProtectors.
 	PodProtectors(namespace string) PodProtectorNamespaceLister
 	PodProtectorListerExpansion
@@ -37,21 +37,17 @@ type PodProtectorLister interface {
 
 // podProtectorLister implements the PodProtectorLister interface.
 type podProtectorLister struct {
-	listers.ResourceIndexer[*v1alpha1.PodProtector]
+	listers.ResourceIndexer[*apisv1alpha1.PodProtector]
 }
 
 // NewPodProtectorLister returns a new PodProtectorLister.
 func NewPodProtectorLister(indexer cache.Indexer) PodProtectorLister {
-	return &podProtectorLister{
-		listers.New[*v1alpha1.PodProtector](indexer, v1alpha1.Resource("podprotector")),
-	}
+	return &podProtectorLister{listers.New[*apisv1alpha1.PodProtector](indexer, apisv1alpha1.Resource("podprotector"))}
 }
 
 // PodProtectors returns an object that can list and get PodProtectors.
 func (s *podProtectorLister) PodProtectors(namespace string) PodProtectorNamespaceLister {
-	return podProtectorNamespaceLister{
-		listers.NewNamespaced[*v1alpha1.PodProtector](s.ResourceIndexer, namespace),
-	}
+	return podProtectorNamespaceLister{listers.NewNamespaced[*apisv1alpha1.PodProtector](s.ResourceIndexer, namespace)}
 }
 
 // PodProtectorNamespaceLister helps list and get PodProtectors.
@@ -59,15 +55,15 @@ func (s *podProtectorLister) PodProtectors(namespace string) PodProtectorNamespa
 type PodProtectorNamespaceLister interface {
 	// List lists all PodProtectors in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.PodProtector, err error)
+	List(selector labels.Selector) (ret []*apisv1alpha1.PodProtector, err error)
 	// Get retrieves the PodProtector from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.PodProtector, error)
+	Get(name string) (*apisv1alpha1.PodProtector, error)
 	PodProtectorNamespaceListerExpansion
 }
 
 // podProtectorNamespaceLister implements the PodProtectorNamespaceLister
 // interface.
 type podProtectorNamespaceLister struct {
-	listers.ResourceIndexer[*v1alpha1.PodProtector]
+	listers.ResourceIndexer[*apisv1alpha1.PodProtector]
 }
