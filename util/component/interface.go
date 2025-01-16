@@ -17,7 +17,7 @@
 // Each "component" is a subroutine with its own lifecycle.
 // Components may depend on other components, which are initialized in topological order.
 // If multiple components depend on the same component (using the component name as the equivalence class),
-// the same instance of the component is used.
+// the same instance of the component is used (see the Merging section).
 //
 // # Concepts
 //
@@ -41,6 +41,8 @@
 //
 // `Deps` is a type that stores the handles (`component.Dep[Api]`)
 // for the dependency components it requested.
+// The `depsFn` function declares the dependencies of a component
+// and obtains such handles from the framework from a `DepRequests`.
 //
 // `State` stores the (possibly mutable) runtime states for the component.
 // Data only need to be stored in `State` if they are to be used for lifecycle or component interactions.
@@ -55,6 +57,37 @@
 // A component `Api` is only considered fully usable after init is called.
 // `init` is called in topological order of dependency,
 // so `Api` of dependencies is considered fully usable in the init function as well.
+//
+// A component is typically declared by calling [Declare],
+// which accepts functions specifying how to construct `Options`, `Deps`, `State` and `Api`
+// as well as injecting different lifecycles hooks for the component.
+// The result of [Declare] is used to lookup the dependency by name during `depsFn`
+// and also tells the framework how to construct the component if it does not already exist.
+//
+// # Merging
+//
+// If the same component name is provided (through `depsFn` or the main `cmd.Run`) repeatedly,
+// only the first instance is used.
+// The additional setup (to be represented in `Args` and `Deps`) in latter provisions
+// may be merged into the first instance by calling `WithMergeFn`.
+//
+// # Runtime disabling
+//
+// Components required from the main `cmd.Run`
+// may be enabled/disabled by the user at runtime through CLI options.
+// Such components may call [DeclaredCtor.WithRequestedFromMainFn]
+// to translate options into this enabled/disabled state.
+// Note that the components would still remain enabled if they are directly requested from other components.
+//
+// Disabled components do not get `init`ed, and their lifecycle hooks are never called.
+// Components only (transitively) requested by disabled components are also disabled.
+//
+// # Multiplexing
+//
+// The Mux API allows components to request an interface dependency without concerning about its implementations.
+// The actual implementations are exposed to the main `cmd.Run` by calling [DeclareMuxImpl],
+// and selected by the user at runtime through CLI options.
+// Non-selected mux implementations and their transitive dependencies are automatically disabled.
 package component
 
 import (
