@@ -64,6 +64,7 @@ import (
 	"reflect"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	"github.com/kubewharf/podseidon/util/errors"
@@ -86,6 +87,7 @@ type Component interface {
 	dependencies() []*depRequest
 
 	// Updates the other component upon name duplication.
+	// Returns a list of incremental dependency requests, which could duplicate with the existing ones.
 	mergeInto(other Component) []*depRequest
 
 	// Registers flags for this component.
@@ -97,12 +99,24 @@ type Component interface {
 	Init(ctx context.Context) error
 	// Starts the actual work.
 	Start(ctx context.Context) error
+	// Registers health check handlers.
+	RegisterHealthChecks(handler *healthz.Handler, onFail func(name string, err error))
 	// Waits for the component to shut down gracefully.
 	// Should return when ctx expires.
 	Join(ctx context.Context) error
-	// Registers health check handlers.
-	RegisterHealthChecks(handler *healthz.Handler, onFail func(name string, err error))
+
+	// Returns whether the component should still be enabled if it is only requested from main.
+	//
+	// This method is only called if it was requested directly from [ResolveList].
+	isRequestedFromMain() bool
+	// Returns a list of dependency names to unrequest.
+	//
+	// The same name may be passed multiple times if it was requested multiple times.
+	unrequestDeps() []string
 }
+
+// Dummy requester name for components directly requested from the [ResolveList] call.
+const mainRequester string = "_main"
 
 // Lifecycle hooks for a component.
 //
@@ -203,7 +217,7 @@ func ResolveList(requestFns []func(*DepRequests)) []NamedComponent {
 	componentMap := map[string]*componentMapEntry{}
 
 	for _, request := range requests.requests {
-		resolveRequest(componentMap, request)
+		resolveRequest(componentMap, request, mainRequester)
 	}
 
 	return toposortComponentList(componentMap)
@@ -236,7 +250,13 @@ func toposortComponentList(componentMap map[string]*componentMapEntry) []NamedCo
 
 		sorted = append(
 			sorted,
-			NamedComponent{Name: compName, Component: entry.comp, apiGetter: entry.apiGetter},
+			NamedComponent{
+				Name:       compName,
+				Component:  entry.comp,
+				apiGetter:  entry.apiGetter,
+				requesters: entry.requesters,
+				deps:       entry.deps,
+			},
 		)
 
 		pending.Delete(compName)
@@ -261,18 +281,24 @@ type NamedComponent struct {
 	Component Component
 	Name      string
 	apiGetter any
+
+	requesters map[string]int
+	deps       map[string]int
 }
 
 type componentMapEntry struct {
 	comp      Component
 	apiGetter any
-	deps      sets.Set[string]
+
+	requesters map[string]int // requester name -> number of times requested
+	deps       map[string]int // dependency name -> number of times requested
 }
 
 // Returns an object equivalent to `request` that exists in `componentMap`.
 func resolveRequest(
 	componentMap map[string]*componentMapEntry,
 	request *depRequest,
+	requester string,
 ) (string, Component, any) {
 	requestComp, requestApi := request.getNew()
 	requestName := requestComp.Name()
@@ -284,13 +310,16 @@ func resolveRequest(
 		}
 
 		deps := requestComp.mergeInto(prev.comp)
-		// resolve incremental dependencies
 
+		// resolve incremental dependencies
 		for _, dep := range deps {
-			depName, depComp, depApi := resolveRequest(componentMap, dep)
+			depName, depComp, depApi := resolveRequest(componentMap, dep, requestName)
 			dep.set(depComp, depApi)
-			prev.deps.Insert(depName)
+
+			prev.deps[depName]++
 		}
+
+		prev.requesters[requester]++
 
 		return requestName, prev.comp, prev.apiGetter
 	}
@@ -299,18 +328,23 @@ func resolveRequest(
 	componentMap[requestName] = nil
 
 	requestDeps := sets.New[string]()
+	requestTimes := map[string]int{}
 
 	// new component; resolve dependencies, init and return the instance we got
 	for _, dep := range requestComp.dependencies() {
-		depName, depComp, depApi := resolveRequest(componentMap, dep)
+		depName, depComp, depApi := resolveRequest(componentMap, dep, requestName)
 		dep.set(depComp, depApi)
+
 		requestDeps.Insert(depName)
+
+		requestTimes[depName]++
 	}
 
 	componentMap[requestName] = &componentMapEntry{
-		comp:      requestComp,
-		apiGetter: requestApi,
-		deps:      requestDeps,
+		comp:       requestComp,
+		apiGetter:  requestApi,
+		requesters: map[string]int{requester: 1},
+		deps:       requestTimes,
 	}
 
 	return requestName, requestComp, requestApi
@@ -335,4 +369,78 @@ func NamedComponentsToApiMap(components []NamedComponent) ApiMap {
 // Retrieves the interface to interact with a component of a known name.
 func ApiFromMap[Api any](apiMap ApiMap, name string) Api {
 	return apiMap[name].(func() Api)()
+}
+
+func TrimNonRequested(components []NamedComponent) []NamedComponent {
+	componentMap := util.SliceToMap(components, func(comp NamedComponent) string { return comp.Name })
+
+	removeDirectDeps(components, componentMap)
+
+	for {
+		hasChanged := shakeTreeOnce(componentMap)
+		if !hasChanged {
+			break
+		}
+	}
+
+	output := make([]NamedComponent, 0, len(componentMap))
+
+	for _, comp := range components {
+		if _, exists := componentMap[comp.Name]; exists {
+			klog.InfoS("component enabled", "comp", comp.Name, "requesters", iter.MapKeys(comp.requesters).CollectSlice())
+			output = append(output, comp)
+		}
+	}
+
+	return output
+}
+
+func removeDirectDeps(components []NamedComponent, componentMap map[string]NamedComponent) {
+	for _, comp := range components {
+		if _, hasMain := comp.requesters[mainRequester]; hasMain {
+			if !comp.Component.isRequestedFromMain() {
+				delete(comp.requesters, mainRequester)
+			}
+		}
+
+		for _, dep := range comp.Component.unrequestDeps() {
+			depRequests := comp.deps[dep]
+
+			if depRequests != componentMap[dep].requesters[comp.Name] {
+				panic("out-edge and in-edge value are out of sync")
+			}
+
+			if depRequests <= 0 {
+				panic("cannot unrequest dependency that was not requested")
+			}
+
+			newCount := depRequests - 1
+			if newCount == 0 {
+				delete(comp.deps, dep)
+				delete(componentMap[dep].requesters, comp.Name)
+			} else {
+				comp.deps[dep] = newCount
+				componentMap[dep].requesters[comp.Name] = newCount
+			}
+		}
+	}
+}
+
+func shakeTreeOnce(componentMap map[string]NamedComponent) bool {
+	hasChanged := false
+
+	for compName, comp := range componentMap {
+		if iter.Sum(iter.MapValues(comp.requesters)) == 0 {
+			hasChanged = true
+
+			for dep := range comp.deps {
+				delete(componentMap[dep].requesters, compName)
+			}
+
+			klog.InfoS("component disabled", "comp", compName)
+			delete(componentMap, compName)
+		}
+	}
+
+	return hasChanged
 }

@@ -136,7 +136,7 @@ func (v *Optional[T]) SetOrFn(value T, fn func(base, increment T) T) {
 // Returns a pointer to the value field,
 // which may represent an uninitialized object.
 // Never returns nil, not even when present.
-func (v Optional[T]) GetValueRef() *T {
+func (v *Optional[T]) GetValueRef() *T {
 	return &v.value
 }
 

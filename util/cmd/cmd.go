@@ -18,8 +18,6 @@ package cmd
 import (
 	"context"
 	goerrors "errors"
-	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -32,6 +30,7 @@ import (
 
 	"github.com/kubewharf/podseidon/util/component"
 	"github.com/kubewharf/podseidon/util/errors"
+	utilflag "github.com/kubewharf/podseidon/util/flag"
 	utilhealthz "github.com/kubewharf/podseidon/util/healthz"
 	"github.com/kubewharf/podseidon/util/util"
 )
@@ -71,6 +70,8 @@ func tryRun(requests []func(*component.DepRequests)) error {
 	if err := pflag.CommandLine.Parse(os.Args[1:]); err != nil {
 		return errors.TagWrapf("ParseArgs", err, "parse args")
 	}
+
+	components = component.TrimNonRequested(components)
 
 	ctx, cancelFunc := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancelFunc()
@@ -129,6 +130,8 @@ func MockStartupWithCliArgs(ctx context.Context, requests []func(*component.DepR
 		panic(err)
 	}
 
+	components = component.TrimNonRequested(components)
+
 	if err := initComponents(ctx, components); err != nil {
 		panic(err)
 	}
@@ -146,12 +149,7 @@ func MockStartup(ctx context.Context, requests []func(*component.DepRequests)) c
 
 func setupFlags(components []component.NamedComponent, fs *pflag.FlagSet) {
 	for _, comp := range components {
-		compFs := flag.FlagSet{Usage: nil}
-		comp.Component.AddFlags(&compFs)
-		compFs.VisitAll(func(f *flag.Flag) {
-			f.Name = fmt.Sprintf("%s-%s", comp.Name, f.Name)
-			fs.AddGoFlag(f)
-		})
+		utilflag.AddSubset(fs, comp.Name, comp.Component.AddFlags)
 	}
 }
 

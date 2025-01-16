@@ -21,10 +21,11 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"github.com/kubewharf/podseidon/util/errors"
-	"github.com/kubewharf/podseidon/util/util"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+
+	"github.com/kubewharf/podseidon/util/errors"
+	"github.com/kubewharf/podseidon/util/util"
 )
 
 // Declares a generic component.
@@ -42,7 +43,7 @@ func Declare[Args any, Options any, Deps any, State any, Api any](
 	init func(ctx context.Context, args Args, options Options, deps Deps) (*State, error),
 	lifecycle Lifecycle[Args, Options, Deps, State],
 	api func(d *Data[Args, Options, Deps, State]) Api,
-) DeclaredCtor[Args, Deps, Api] {
+) DeclaredCtor[Args, Options, Deps, Api] {
 	return func(args Args) Declared[Api] {
 		impl := &componentImpl[Args, Options, Deps, State]{
 			Data: Data[Args, Options, Deps, State]{
@@ -51,13 +52,15 @@ func Declare[Args any, Options any, Deps any, State any, Api any](
 				Deps:    util.Zero[Deps](),
 				State:   nil,
 			},
-			name:      name(args),
-			optionsFn: newOptions,
-			depsFn:    newDeps,
-			init:      init,
-			lifecycle: lifecycle,
-			onMerge:   nil,
-			phase:     nil,
+			name:                  name(args),
+			optionsFn:             newOptions,
+			depsFn:                newDeps,
+			init:                  init,
+			lifecycle:             lifecycle,
+			onMerge:               nil,
+			isRequestedFromMainFn: func(Args, Options) bool { return true },
+			unrequestDepsFn:       func(Args, Options) []string { return nil },
+			phase:                 nil,
 		}
 
 		if start := impl.lifecycle.Start; start != nil {
@@ -88,22 +91,52 @@ func Declare[Args any, Options any, Deps any, State any, Api any](
 	}
 }
 
-type DeclaredCtor[Args any, Deps any, Api any] func(Args) Declared[Api]
+type DeclaredCtor[Args any, Options any, Deps any, Api any] func(Args) Declared[Api]
 
-func (ctor DeclaredCtor[Args, Deps, Api]) WithMergeFn(
+func (ctor DeclaredCtor[Args, Options, Deps, Api]) WithMergeFn(
 	onMerge func(*Args, *Deps, *DepRequests),
-) DeclaredCtor[Args, Deps, Api] {
+) DeclaredCtor[Args, Options, Deps, Api] {
 	return func(args Args) Declared[Api] {
 		decl := ctor(args).(*declaredImpl[Args, Deps, Api])
-		impl := decl.comp.(setOnMerge[Args, Deps])
+		impl := decl.comp.(declaredCompErased[Args, Options, Deps])
 		impl.setOnMerge(onMerge)
 
 		return decl
 	}
 }
 
-type setOnMerge[Args any, Deps any] interface {
+func (ctor DeclaredCtor[Args, Options, Deps, Api]) WithRequestedFromMainFn(
+	isRequestedFromMainFn IsRequestedFromMain[Args, Options],
+) DeclaredCtor[Args, Options, Deps, Api] {
+	return func(args Args) Declared[Api] {
+		decl := ctor(args).(*declaredImpl[Args, Deps, Api])
+		impl := decl.comp.(declaredCompErased[Args, Options, Deps])
+		impl.setIsRequestedFromMainFn(isRequestedFromMainFn)
+
+		return decl
+	}
+}
+
+type IsRequestedFromMain[Args any, Options any] func(Args, Options) bool
+
+func (ctor DeclaredCtor[Args, Options, Deps, Api]) WithUnrequestDepsFn(
+	unrequestDepsFn UnrequestDeps[Args, Options],
+) DeclaredCtor[Args, Options, Deps, Api] {
+	return func(args Args) Declared[Api] {
+		decl := ctor(args).(*declaredImpl[Args, Deps, Api])
+		impl := decl.comp.(declaredCompErased[Args, Options, Deps])
+		impl.setUnrequestDepsFn(unrequestDepsFn)
+
+		return decl
+	}
+}
+
+type UnrequestDeps[Args any, Options any] func(Args, Options) []string
+
+type declaredCompErased[Args any, Options any, Deps any] interface {
 	setOnMerge(onMerge func(*Args, *Deps, *DepRequests))
+	setIsRequestedFromMainFn(isRequestedFromMainFn IsRequestedFromMain[Args, Options])
+	setUnrequestDepsFn(unrequestDepsFn UnrequestDeps[Args, Options])
 }
 
 //
@@ -112,6 +145,22 @@ func (impl *componentImpl[Args, Options, Deps, State]) setOnMerge(
 	onMerge func(*Args, *Deps, *DepRequests),
 ) {
 	impl.onMerge = onMerge
+}
+
+//
+//nolint:unused // Implements unexported interface setOnMerge, false positive from unused lint
+func (impl *componentImpl[Args, Options, Deps, State]) setIsRequestedFromMainFn(
+	isRequestedFromMainFn IsRequestedFromMain[Args, Options],
+) {
+	impl.isRequestedFromMainFn = isRequestedFromMainFn
+}
+
+//
+//nolint:unused // Implements unexported interface setOnMerge, false positive from unused lint
+func (impl *componentImpl[Args, Options, Deps, State]) setUnrequestDepsFn(
+	unrequestDepsFn UnrequestDeps[Args, Options],
+) {
+	impl.unrequestDepsFn = unrequestDepsFn
 }
 
 type Declared[Api any] interface {
@@ -160,7 +209,6 @@ func (decl *declaredImpl[Args, Deps, Api]) asRawDep() Dep[Api] {
 	return &rawDep[Api]{api: &decl.api}
 }
 
-
 // Stores various data related to a component.
 type Data[Args any, Options any, Deps any, State any] struct {
 	// Runtime arguments for this component,
@@ -206,6 +254,9 @@ type componentImpl[Args any, Options any, Deps any, State any] struct {
 	//
 	// Optionally requests extra dependencies.
 	onMerge func(*Args, *Deps, *DepRequests)
+
+	isRequestedFromMainFn IsRequestedFromMain[Args, Options]
+	unrequestDepsFn       UnrequestDeps[Args, Options]
 
 	phase *atomic.Pointer[string]
 }
@@ -301,6 +352,14 @@ func (impl *componentImpl[Args, Options, Deps, State]) Join(ctx context.Context)
 	}
 
 	return nil
+}
+
+func (impl *componentImpl[Args, Options, Deps, State]) isRequestedFromMain() bool {
+	return impl.isRequestedFromMainFn(impl.Args, impl.Options)
+}
+
+func (impl *componentImpl[Args, Options, Deps, State]) unrequestDeps() []string {
+	return impl.unrequestDepsFn(impl.Args, impl.Options)
 }
 
 const phaseStarted = "Started"

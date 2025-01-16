@@ -215,3 +215,105 @@ func TestCyclicDependency(t *testing.T) {
 		)
 	})
 }
+
+type MuxInterface interface{ Which() int }
+
+var RequestMuxInterface = component.ProvideMux[MuxInterface]("select", "usage")
+
+type MuxImpl1 struct{}
+
+func (MuxImpl1) Which() int { return 1 }
+
+type MuxImpl2 struct{}
+
+func (MuxImpl2) Which() int { return 2 }
+
+func declareMuxImpl(implName string, impl MuxInterface, isInited *int) func(*component.DepRequests) {
+	return component.DeclareMuxImpl(
+		"select", implName,
+		func(*int, *flag.FlagSet) util.Empty { return util.Empty{} },
+		func(*int, *component.DepRequests) util.Empty { return util.Empty{} },
+		func(_ context.Context, isInited *int, _ util.Empty, _ util.Empty) (*util.Empty, error) {
+			*isInited |= impl.Which()
+			return &util.Empty{}, nil
+		},
+		util.Zero[component.Lifecycle[*int, util.Empty, util.Empty, util.Empty]](),
+		func(*component.Data[*int, util.Empty, util.Empty, util.Empty]) MuxInterface { return impl },
+	)(isInited)
+}
+
+type muxInterfaceUserArgs struct {
+	initWrite  *int
+	startWrite *int
+}
+
+var muxInterfaceUser = component.Declare(
+	func(muxInterfaceUserArgs) string { return "user" },
+	func(muxInterfaceUserArgs, *flag.FlagSet) util.Empty { return util.Empty{} },
+	func(_ muxInterfaceUserArgs, reqs *component.DepRequests) component.Dep[MuxInterface] {
+		return component.DepPtr(reqs, RequestMuxInterface())
+	},
+	func(_ context.Context, args muxInterfaceUserArgs, _ util.Empty, dep component.Dep[MuxInterface]) (*util.Empty, error) {
+		*args.initWrite = dep.Get().Which()
+		return &util.Empty{}, nil
+	},
+	component.Lifecycle[muxInterfaceUserArgs, util.Empty, component.Dep[MuxInterface], util.Empty]{
+		Start: func(_ context.Context, args *muxInterfaceUserArgs, _ *util.Empty, dep *component.Dep[MuxInterface], _ *util.Empty) error {
+			*args.startWrite = (*dep).Get().Which()
+			return nil
+		},
+		Join:         nil,
+		HealthChecks: nil,
+	},
+	func(*component.Data[muxInterfaceUserArgs, util.Empty, component.Dep[MuxInterface], util.Empty]) util.Empty {
+		return util.Empty{}
+	},
+)
+
+func TestMuxResolveDefault(t *testing.T) {
+	t.Parallel()
+
+	initWrite := 0
+	startWrite := 0
+	isImplInited := 0
+
+	cmd.MockStartupWithCliArgs(context.Background(), []func(*component.DepRequests){
+		declareMuxImpl("impl1", MuxImpl1{}, &isImplInited),
+		declareMuxImpl("impl2", MuxImpl2{}, &isImplInited),
+		component.RequireDep(muxInterfaceUser(muxInterfaceUserArgs{initWrite: &initWrite, startWrite: &startWrite})),
+	}, []string{})
+
+	assert.Equal(t, 1, initWrite)
+	assert.Equal(t, 1, startWrite)
+	assert.Equal(t, 1, isImplInited)
+}
+
+func TestMuxResolveSpecified(t *testing.T) {
+	t.Parallel()
+
+	initWrite := 0
+	startWrite := 0
+	isImplInited := 0
+
+	cmd.MockStartupWithCliArgs(context.Background(), []func(*component.DepRequests){
+		declareMuxImpl("impl1", MuxImpl1{}, &isImplInited),
+		declareMuxImpl("impl2", MuxImpl2{}, &isImplInited),
+		component.RequireDep(muxInterfaceUser(muxInterfaceUserArgs{initWrite: &initWrite, startWrite: &startWrite})),
+	}, []string{"--select=impl2"})
+
+	assert.Equal(t, 2, initWrite)
+	assert.Equal(t, 2, startWrite)
+	assert.Equal(t, 2, isImplInited)
+}
+
+func TestMuxInvalidOption(t *testing.T) {
+	t.Parallel()
+
+	assert.PanicsWithError(t, `invalid argument "nosuchimpl" for "--select" flag: unknown option "nosuchimpl"`, func() {
+		cmd.MockStartupWithCliArgs(context.Background(), []func(*component.DepRequests){
+			declareMuxImpl("impl1", MuxImpl1{}, new(int)),
+			declareMuxImpl("impl2", MuxImpl2{}, new(int)),
+			component.RequireDep(muxInterfaceUser(muxInterfaceUserArgs{initWrite: new(int), startWrite: new(int)})),
+		}, []string{"--select=nosuchimpl"})
+	})
+}

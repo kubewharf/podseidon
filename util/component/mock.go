@@ -19,8 +19,9 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/kubewharf/podseidon/util/util"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+
+	"github.com/kubewharf/podseidon/util/util"
 )
 
 // A dummy component that does nothing, used for `ApiOnly`.
@@ -32,7 +33,7 @@ func (comp emptyComponent) Name() string {
 	return comp.name
 }
 
-func (comp emptyComponent) dependencies() []*depRequest{
+func (emptyComponent) dependencies() []*depRequest {
 	return []*depRequest{}
 }
 
@@ -46,13 +47,16 @@ func (emptyComponent) Init(context.Context) error { return nil }
 
 func (emptyComponent) Start(context.Context) error { return nil }
 
-func (emptyComponent) Join(context.Context) error { return nil }
-
 func (emptyComponent) RegisterHealthChecks(
 	*healthz.Handler,
 	func(name string, err error),
 ) {
 }
+
+func (emptyComponent) Join(context.Context) error { return nil }
+
+func (emptyComponent) isRequestedFromMain() bool { return true }
+func (emptyComponent) unrequestDeps() []string   { return nil }
 
 // Provides a named component with a different implementation of its API.
 // Used for mocking components in integration tests.
