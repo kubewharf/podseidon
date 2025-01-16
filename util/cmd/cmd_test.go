@@ -230,7 +230,8 @@ func (MuxImpl2) Which() int { return 2 }
 
 func declareMuxImpl(implName string, impl MuxInterface, isInited *int) func(*component.DepRequests) {
 	return component.DeclareMuxImpl(
-		"select", implName,
+		"select",
+		func(*int) string { return implName },
 		func(*int, *flag.FlagSet) util.Empty { return util.Empty{} },
 		func(*int, *component.DepRequests) util.Empty { return util.Empty{} },
 		func(_ context.Context, isInited *int, _ util.Empty, _ util.Empty) (*util.Empty, error) {

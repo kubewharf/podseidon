@@ -41,7 +41,7 @@ import (
 // The first implementation that got declared is always the default option.
 func DeclareMuxImpl[Args any, Options any, Deps any, State any, Interface any](
 	muxName string,
-	implName string,
+	implNameFn func(Args) string,
 	optionsFn func(Args, *flag.FlagSet) Options,
 	depsFn func(Args, *DepRequests) Deps,
 	init func(context.Context, Args, Options, Deps) (*State, error),
@@ -49,6 +49,8 @@ func DeclareMuxImpl[Args any, Options any, Deps any, State any, Interface any](
 	api func(*Data[Args, Options, Deps, State]) Interface,
 ) func(Args) func(*DepRequests) {
 	return func(implArgs Args) func(*DepRequests) {
+		implName := implNameFn(implArgs)
+
 		implComp := Declare(
 			func(Args) string { return fmt.Sprintf("%s-%s", muxName, implName) },
 			optionsFn,

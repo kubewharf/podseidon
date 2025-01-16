@@ -36,8 +36,8 @@ var RequestPodInterpreter = component.ProvideMux[PodInterpreter](
 )
 
 var DefaultImpls = component.RequireDeps(
-	RequireClock(clock.RealClock{}),
-	RequireStatus(util.Empty{}),
+	ProvideClock(clock.RealClock{}),
+	ProvideStatus(util.Empty{}),
 )
 
 // PodInterpreter determines the last timestamp a pod was updated from the object.
@@ -46,9 +46,9 @@ type PodInterpreter interface {
 	Interpret(pod *corev1.Pod) (time.Time, error)
 }
 
-var RequireClock = component.DeclareMuxImpl(
+var ProvideClock = component.DeclareMuxImpl(
 	PodInterpreterMuxName,
-	"clock",
+	func(clock.Clock) string { return "clock" },
 	func(clock.Clock, *flag.FlagSet) util.Empty { return util.Empty{} },
 	func(clock.Clock, *component.DepRequests) util.Empty { return util.Empty{} },
 	func(context.Context, clock.Clock, util.Empty, util.Empty) (*util.Empty, error) {
@@ -69,9 +69,9 @@ func (interp *ClockPodInterpreter) Interpret(*corev1.Pod) (time.Time, error) {
 	return interp.Clock.Now(), nil
 }
 
-var RequireStatus = component.DeclareMuxImpl(
+var ProvideStatus = component.DeclareMuxImpl(
 	PodInterpreterMuxName,
-	"status",
+	func(util.Empty) string { return "status" },
 	func(util.Empty, *flag.FlagSet) util.Empty { return util.Empty{} },
 	func(util.Empty, *component.DepRequests) util.Empty { return util.Empty{} },
 	func(context.Context, util.Empty, util.Empty, util.Empty) (*util.Empty, error) {

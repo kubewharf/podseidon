@@ -37,6 +37,7 @@ func main() {
 		pprutilobserver.ProvideInformer,
 		webhookobserver.Provide,
 		retrybatchobserver.Provide,
-		component.RequireDep(server.New(server.Args{SourceProvider: pprutil.RequestSingleSourceProvider("core")})),
+		component.RequireDep(server.New(server.Args{})),
+		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}),
 	)
 }

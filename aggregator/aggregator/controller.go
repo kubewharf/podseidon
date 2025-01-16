@@ -79,16 +79,15 @@ var NewController = component.Declare(
 	},
 	func(args ControllerArgs, requests *component.DepRequests) ControllerDeps {
 		return ControllerDeps{
-			sourceProvider: args.SourceProvider(requests),
+			sourceProvider: component.DepPtr(requests, pprutil.RequestSourceProvider()),
 			syncTimeAlgo:   component.DepPtr(requests, synctime.RequestPodInterpreter()),
 			workerClient: component.DepPtr(
 				requests,
 				kube.NewClient(kube.ClientArgs{ClusterName: constants.WorkerClusterName}),
 			),
 			pprInformer: component.DepPtr(requests, pprutil.NewIndexedInformer(pprutil.IndexedInformerArgs{
-				Suffix:         "",
-				SourceProvider: args.SourceProvider,
-				Elector:        optional.Some(constants.ElectorArgs),
+				Suffix:  "",
+				Elector: optional.Some(constants.ElectorArgs),
 			})),
 			observer: o11y.Request[observer.Observer](requests),
 			elector:  component.DepPtr(requests, kube.NewElector(constants.ElectorArgs)),
@@ -131,8 +130,7 @@ var NewController = component.Declare(
 )
 
 type ControllerArgs struct {
-	Clock          clock.WithTicker
-	SourceProvider pprutil.SourceProviderRequest
+	Clock clock.WithTicker
 }
 
 type ControllerOptions struct {
@@ -143,7 +141,7 @@ type ControllerOptions struct {
 }
 
 type ControllerDeps struct {
-	sourceProvider func() pprutil.SourceProvider
+	sourceProvider component.Dep[pprutil.SourceProvider]
 	syncTimeAlgo   component.Dep[synctime.PodInterpreter]
 	workerClient   component.Dep[*kube.Client]
 	pprInformer    component.Dep[pprutil.IndexedInformer]
@@ -210,7 +208,7 @@ func initController(
 	state := &ControllerState{
 		caches: Caches{
 			podIndex:              podIndex,
-			sourceProvider:        deps.sourceProvider(),
+			sourceProvider:        deps.sourceProvider.Get(),
 			podLister:             podLister,
 			pprInformer:           deps.pprInformer.Get(),
 			informerSyncReader:    informerSyncReader,

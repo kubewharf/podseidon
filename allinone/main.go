@@ -53,8 +53,7 @@ func main() {
 		aggregatorobserver.Provide,
 		webhookobserver.Provide,
 		component.RequireDep(aggregator.NewController(aggregator.ControllerArgs{
-			Clock:          clock.RealClock{},
-			SourceProvider: pprutil.RequestSingleSourceProvider("core"),
+			Clock: clock.RealClock{},
 		})),
 		synctime.DefaultImpls,
 		component.RequireDep(updatetrigger.New(updatetrigger.Args{})),
@@ -66,6 +65,7 @@ func main() {
 			},
 		)),
 		component.RequireDep(monitor.New(monitor.Args{})),
-		component.RequireDep(webhookserver.New(webhookserver.Args{SourceProvider: pprutil.RequestSingleSourceProvider("core")})),
+		component.RequireDep(webhookserver.New(webhookserver.Args{})),
+		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}),
 	)
 }
