@@ -69,15 +69,14 @@ var New = component.Declare(
 			),
 		}
 	},
-	func(args Args, requests *component.DepRequests) Deps {
+	func(_ Args, requests *component.DepRequests) Deps {
 		return Deps{
-			getSourceProvider: args.SourceProvider(requests),
+			sourceProvider: component.DepPtr(requests, pprutil.RequestSourceProvider()),
 			pprInformer: component.DepPtr(
 				requests,
 				pprutil.NewIndexedInformer(pprutil.IndexedInformerArgs{
-					Suffix:         "",
-					SourceProvider: args.SourceProvider,
-					Elector:        optional.None[kube.ElectorArgs](),
+					Suffix:  "",
+					Elector: optional.None[kube.ElectorArgs](),
 				}),
 			),
 			observer:      o11y.Request[observer.Observer](requests),
@@ -86,7 +85,7 @@ var New = component.Declare(
 		}
 	},
 	func(_ context.Context, _ Args, options Options, deps Deps) (*State, error) {
-		sourceProvider := deps.getSourceProvider()
+		sourceProvider := deps.sourceProvider.Get()
 
 		poolReader, poolWriter := util.NewLateInit[retrybatch.Pool[pprutil.PodProtectorKey, BatchArg, pprutil.DisruptionResult]]()
 
@@ -135,9 +134,7 @@ var New = component.Declare(
 	},
 )
 
-type Args struct {
-	SourceProvider pprutil.SourceProviderRequest
-}
+type Args struct{}
 
 type Options struct {
 	ColdStartDelay   *time.Duration
@@ -146,11 +143,11 @@ type Options struct {
 }
 
 type Deps struct {
-	getSourceProvider func() pprutil.SourceProvider
-	pprInformer       component.Dep[pprutil.IndexedInformer]
-	observer          component.Dep[observer.Observer]
-	retrybatchObs     component.Dep[retrybatchobserver.Observer]
-	defaultConfig     component.Dep[*defaultconfig.Options]
+	sourceProvider component.Dep[pprutil.SourceProvider]
+	pprInformer    component.Dep[pprutil.IndexedInformer]
+	observer       component.Dep[observer.Observer]
+	retrybatchObs  component.Dep[retrybatchobserver.Observer]
+	defaultConfig  component.Dep[*defaultconfig.Options]
 }
 
 type State struct {

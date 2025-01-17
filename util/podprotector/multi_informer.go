@@ -45,15 +45,15 @@ import (
 // Multiplexes to a dynamic number of source clusters for PodProtector lookup.
 var NewIndexedInformer = component.Declare[IndexedInformerArgs, informerOptions, informerDeps, informerState, IndexedInformer](
 	func(args IndexedInformerArgs) string {
-		return fmt.Sprintf("ppr-indexed-informer-%s", args.Suffix)
+		return fmt.Sprintf("podprotector-indexed-informer-%s", args.Suffix)
 	},
 	func(_ IndexedInformerArgs, _ *flag.FlagSet) informerOptions {
 		return informerOptions{}
 	},
 	func(args IndexedInformerArgs, requests *component.DepRequests) informerDeps {
 		return informerDeps{
-			observer:          o11y.Request[observer.IndexedInformerObserver](requests),
-			getSourceProvider: args.SourceProvider(requests),
+			observer:       o11y.Request[observer.IndexedInformerObserver](requests),
+			sourceProvider: component.DepPtr(requests, RequestSourceProvider()),
 			elector: optional.Map(args.Elector, func(electorArgs kube.ElectorArgs) component.Dep[*kube.Elector] {
 				return component.DepPtr(requests, kube.NewElector(electorArgs))
 			}),
@@ -61,7 +61,7 @@ var NewIndexedInformer = component.Declare[IndexedInformerArgs, informerOptions,
 	},
 	func(_ context.Context, _ IndexedInformerArgs, _ informerOptions, deps informerDeps) (*informerState, error) {
 		return &informerState{
-			isSourceIdent: deps.getSourceProvider().IsSourceIdentifying(),
+			isSourceIdent: deps.sourceProvider.Get().IsSourceIdentifying(),
 			sources:       atomic.Pointer[map[SourceName]*sourceState]{},
 			postHandlers:  nil,
 		}, nil
@@ -84,7 +84,7 @@ var NewIndexedInformer = component.Declare[IndexedInformerArgs, informerOptions,
 					ctx = leaderCtx
 				}
 
-				updateCh := deps.getSourceProvider().Watch(ctx)
+				updateCh := deps.sourceProvider.Get().Watch(ctx)
 
 				for {
 					select {
@@ -120,20 +120,20 @@ type IndexedInformerArgs struct {
 	// Suffix of the component.
 	Suffix string
 
-	// Requests the relevant dependencies,
-	// and returns the getter for the actual source provider that can be accessed after init.
-	SourceProvider SourceProviderRequest
-
 	Elector optional.Optional[kube.ElectorArgs]
 }
 
 type informerOptions struct{}
 
 type informerDeps struct {
-	observer          component.Dep[observer.IndexedInformerObserver]
-	getSourceProvider func() SourceProvider
-	elector           optional.Optional[component.Dep[*kube.Elector]]
+	observer       component.Dep[observer.IndexedInformerObserver]
+	sourceProvider component.Dep[SourceProvider]
+	elector        optional.Optional[component.Dep[*kube.Elector]]
 }
+
+const SourceProviderMuxName = "podprotector-source-provider"
+
+var RequestSourceProvider = component.ProvideMux[SourceProvider](SourceProviderMuxName, "provider for clusters hosting PodProtectors")
 
 // Provides a dynamic list of source clusters to watch.
 type SourceProvider interface {
@@ -161,13 +161,6 @@ type SourceProvider interface {
 	// Updates the status of a PodProtector object as received from `sourceName`.
 	UpdateStatus(ctx context.Context, sourceName SourceName, ppr *podseidonv1a1.PodProtector) error
 }
-
-// Frequently used type in component args.
-// Requests the relevant dependencies for a source provider,
-// and returns the getter for the actual source provider that can be accessed after init.
-// The return type is `func() SourceProvider` instead of `component.Dep[SourceProvider]`
-// to support use cases where the actual component does not use `SourceProvider` as its API directly.
-type SourceProviderRequest = func(*component.DepRequests) func() SourceProvider
 
 // Identifies a source for PodProtector.
 type SourceName string

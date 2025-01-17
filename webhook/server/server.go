@@ -31,7 +31,6 @@ import (
 	utilhttp "github.com/kubewharf/podseidon/util/http"
 	"github.com/kubewharf/podseidon/util/o11y"
 	"github.com/kubewharf/podseidon/util/optional"
-	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 	"github.com/kubewharf/podseidon/util/util"
 
 	"github.com/kubewharf/podseidon/webhook/handler"
@@ -61,12 +60,10 @@ var New = utilhttp.DeclareServer(
 			),
 		}
 	},
-	func(args Args, reqs *component.DepRequests) Deps {
+	func(_ Args, reqs *component.DepRequests) Deps {
 		return Deps{
 			observer: o11y.Request[observer.Observer](reqs),
-			handler: component.DepPtr(reqs, handler.New(handler.Args{
-				SourceProvider: args.SourceProvider,
-			})),
+			handler:  component.DepPtr(reqs, handler.New(handler.Args{})),
 		}
 	},
 	func(_ Args, options Options, deps Deps, mux *http.ServeMux) (*State, error) {
@@ -191,9 +188,7 @@ var New = utilhttp.DeclareServer(
 	func(Args, Options, Deps, *State) util.Empty { return util.Empty{} },
 )
 
-type Args struct {
-	SourceProvider pprutil.SourceProviderRequest
-}
+type Args struct{}
 
 type Options struct {
 	pathPrefix *string

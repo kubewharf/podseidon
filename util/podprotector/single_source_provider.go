@@ -28,17 +28,10 @@ import (
 	"github.com/kubewharf/podseidon/util/kube"
 )
 
-func RequestSingleSourceProvider(clusterName kube.ClusterName) SourceProviderRequest {
-	return func(reqs *component.DepRequests) func() SourceProvider {
-		return component.DepPtr(reqs, NewSingleSourceProvider(SingleSourceProviderArgs{
-			ClusterName: clusterName,
-		})).Get
-	}
-}
-
-var NewSingleSourceProvider = component.Declare(
-	func(args SingleSourceProviderArgs) string { return fmt.Sprintf("%s-source-provider", args.ClusterName) },
-	func(_ SingleSourceProviderArgs, _ *flag.FlagSet) SingleSourceProviderOptions {
+var RequireSingleSourceProvider = component.DeclareMuxImpl(
+	SourceProviderMuxName,
+	func(args SingleSourceProviderArgs) string { return fmt.Sprintf("%s-only", args.ClusterName) },
+	func(SingleSourceProviderArgs, *flag.FlagSet) SingleSourceProviderOptions {
 		return SingleSourceProviderOptions{}
 	},
 	func(args SingleSourceProviderArgs, reqs *component.DepRequests) SingleSourceProviderDeps {

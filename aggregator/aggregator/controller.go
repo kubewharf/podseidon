@@ -52,7 +52,7 @@ import (
 
 var NewController = component.Declare(
 	func(ControllerArgs) string { return "aggregator" },
-	func(args ControllerArgs, fs *flag.FlagSet) ControllerOptions {
+	func(_ ControllerArgs, fs *flag.FlagSet) ControllerOptions {
 		return ControllerOptions{
 			cellId: fs.String(
 				"cell-id",
@@ -70,13 +70,6 @@ var NewController = component.Declare(
 				"pod-label-selector",
 				"only watch pods matching this label selector, used to reduce memory usage by excluding irrelevant pods",
 			),
-			informerSyncTimeAlgo: utilflag.EnumFromMap(args.InformerSyncTimeAlgos).
-				Default(args.DefaultInformerSyncTimeAlgo).
-				Flag(
-					fs,
-					"informer-synctime-algorithm",
-					"the algorithm to infer reflector update time from pod events",
-				),
 			podRelistPeriod: fs.Duration(
 				"pod-relist-period",
 				0,
@@ -86,15 +79,15 @@ var NewController = component.Declare(
 	},
 	func(args ControllerArgs, requests *component.DepRequests) ControllerDeps {
 		return ControllerDeps{
-			sourceProvider: args.SourceProvider(requests),
+			sourceProvider: component.DepPtr(requests, pprutil.RequestSourceProvider()),
+			syncTimeAlgo:   component.DepPtr(requests, synctime.RequestPodInterpreter()),
 			workerClient: component.DepPtr(
 				requests,
 				kube.NewClient(kube.ClientArgs{ClusterName: constants.WorkerClusterName}),
 			),
 			pprInformer: component.DepPtr(requests, pprutil.NewIndexedInformer(pprutil.IndexedInformerArgs{
-				Suffix:         "",
-				SourceProvider: args.SourceProvider,
-				Elector:        optional.Some(constants.ElectorArgs),
+				Suffix:  "",
+				Elector: optional.Some(constants.ElectorArgs),
 			})),
 			observer: o11y.Request[observer.Observer](requests),
 			elector:  component.DepPtr(requests, kube.NewElector(constants.ElectorArgs)),
@@ -136,36 +129,20 @@ var NewController = component.Declare(
 	},
 )
 
-func DefaultArg(sourceProviderRequest pprutil.SourceProviderRequest) component.Declared[util.Empty] {
-	return NewController(ControllerArgs{
-		InformerSyncTimeAlgos: map[string]synctime.PodInterpreter{
-			"clock":  &synctime.ClockPodInterpreter{Clock: clock.RealClock{}},
-			"status": synctime.StatusPodInterpreter{},
-		},
-		DefaultInformerSyncTimeAlgo: "clock",
-		Clock:                       clock.RealClock{},
-		SourceProvider:              sourceProviderRequest,
-	})
-}
-
 type ControllerArgs struct {
-	InformerSyncTimeAlgos       map[string]synctime.PodInterpreter
-	DefaultInformerSyncTimeAlgo string
-	Clock                       clock.WithTicker
-
-	SourceProvider pprutil.SourceProviderRequest
+	Clock clock.WithTicker
 }
 
 type ControllerOptions struct {
-	cellId               *string
-	pprLabelSelector     *labels.Selector
-	podLabelSelector     *labels.Selector
-	informerSyncTimeAlgo *synctime.PodInterpreter
-	podRelistPeriod      *time.Duration
+	cellId           *string
+	pprLabelSelector *labels.Selector
+	podLabelSelector *labels.Selector
+	podRelistPeriod  *time.Duration
 }
 
 type ControllerDeps struct {
-	sourceProvider func() pprutil.SourceProvider
+	sourceProvider component.Dep[pprutil.SourceProvider]
+	syncTimeAlgo   component.Dep[synctime.PodInterpreter]
 	workerClient   component.Dep[*kube.Client]
 	pprInformer    component.Dep[pprutil.IndexedInformer]
 	elector        component.Dep[*kube.Elector]
@@ -210,9 +187,7 @@ func initController(
 		labelindex.ErrorErrAdapter{},
 	)
 
-	informerSyncInitialMarker, informerSyncNotifier, informerSyncReader := synctime.New(
-		*options.informerSyncTimeAlgo,
-	)
+	informerSyncInitialMarker, informerSyncNotifier, informerSyncReader := synctime.New(deps.syncTimeAlgo.Get())
 
 	nextEventPool := newNextEventPool()
 
@@ -233,7 +208,7 @@ func initController(
 	state := &ControllerState{
 		caches: Caches{
 			podIndex:              podIndex,
-			sourceProvider:        deps.sourceProvider(),
+			sourceProvider:        deps.sourceProvider.Get(),
 			podLister:             podLister,
 			pprInformer:           deps.pprInformer.Get(),
 			informerSyncReader:    informerSyncReader,

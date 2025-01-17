@@ -15,6 +15,8 @@
 package main
 
 import (
+	"k8s.io/utils/clock"
+
 	"github.com/kubewharf/podseidon/util/cmd"
 	"github.com/kubewharf/podseidon/util/component"
 	healthzobserver "github.com/kubewharf/podseidon/util/healthz/observer"
@@ -28,6 +30,7 @@ import (
 
 	"github.com/kubewharf/podseidon/aggregator/aggregator"
 	aggregatorobserver "github.com/kubewharf/podseidon/aggregator/observer"
+	"github.com/kubewharf/podseidon/aggregator/synctime"
 	"github.com/kubewharf/podseidon/aggregator/updatetrigger"
 )
 
@@ -40,7 +43,11 @@ func main() {
 		kubeobserver.ProvideElector,
 		aggregatorobserver.Provide,
 		pprutilobserver.ProvideInformer,
-		component.RequireDep(aggregator.DefaultArg(pprutil.RequestSingleSourceProvider("core"))),
+		component.RequireDep(aggregator.NewController(aggregator.ControllerArgs{
+			Clock: clock.RealClock{},
+		})),
+		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}, true),
+		synctime.DefaultImpls,
 		component.RequireDep(updatetrigger.New(updatetrigger.Args{})),
 	)
 }

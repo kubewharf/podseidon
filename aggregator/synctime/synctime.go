@@ -19,55 +19,12 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 
 	"github.com/kubewharf/podseidon/util/errors"
 	"github.com/kubewharf/podseidon/util/optional"
 	"github.com/kubewharf/podseidon/util/util"
-
-	"github.com/kubewharf/podseidon/aggregator/constants"
 )
-
-// PodInterpreter determines the last timestamp a pod was updated from the object.
-// Users may provide other implementations using side channels to determine this.
-type PodInterpreter interface {
-	Interpret(pod *corev1.Pod) (time.Time, error)
-}
-
-// Always takes the informer receive time as the pod update time.
-type ClockPodInterpreter struct {
-	Clock clock.Clock
-}
-
-func (interp *ClockPodInterpreter) Interpret(*corev1.Pod) (time.Time, error) {
-	return interp.Clock.Now(), nil
-}
-
-type StatusPodInterpreter struct{}
-
-func (StatusPodInterpreter) Interpret(pod *corev1.Pod) (time.Time, error) {
-	maxTime := pod.CreationTimestamp.Time
-
-	if !pod.DeletionTimestamp.Time.IsZero() {
-		maxTime = pod.DeletionTimestamp.Time
-	}
-
-	if timeStr, isUpdateTrigger := pod.Annotations[constants.AnnotUpdateTriggerTime]; isUpdateTrigger {
-		updateTime, err := time.Parse(time.RFC3339Nano, timeStr)
-		if err == nil && updateTime.After(maxTime) {
-			maxTime = updateTime
-		}
-	}
-
-	for _, condition := range pod.Status.Conditions {
-		if condition.LastProbeTime.Time.After(maxTime) {
-			maxTime = condition.LastProbeTime.Time
-		}
-	}
-
-	return maxTime, nil
-}
 
 func New(interpreter PodInterpreter) (InitialMarker, Notifier, Reader) {
 	lastInformerSync := &atomic.Pointer[time.Time]{}

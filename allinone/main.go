@@ -15,6 +15,8 @@
 package main
 
 import (
+	"k8s.io/utils/clock"
+
 	"github.com/kubewharf/podseidon/util/cmd"
 	"github.com/kubewharf/podseidon/util/component"
 	healthzobserver "github.com/kubewharf/podseidon/util/healthz/observer"
@@ -28,6 +30,7 @@ import (
 
 	"github.com/kubewharf/podseidon/aggregator/aggregator"
 	aggregatorobserver "github.com/kubewharf/podseidon/aggregator/observer"
+	"github.com/kubewharf/podseidon/aggregator/synctime"
 	"github.com/kubewharf/podseidon/aggregator/updatetrigger"
 	"github.com/kubewharf/podseidon/generator/generator"
 	"github.com/kubewharf/podseidon/generator/monitor"
@@ -49,7 +52,10 @@ func main() {
 		generatorobserver.Provide,
 		aggregatorobserver.Provide,
 		webhookobserver.Provide,
-		component.RequireDep(aggregator.DefaultArg(pprutil.RequestSingleSourceProvider("core"))),
+		component.RequireDep(aggregator.NewController(aggregator.ControllerArgs{
+			Clock: clock.RealClock{},
+		})),
+		synctime.DefaultImpls,
 		component.RequireDep(updatetrigger.New(updatetrigger.Args{})),
 		component.RequireDep(generator.NewController(
 			generator.ControllerArgs{
@@ -59,6 +65,7 @@ func main() {
 			},
 		)),
 		component.RequireDep(monitor.New(monitor.Args{})),
-		component.RequireDep(webhookserver.New(webhookserver.Args{SourceProvider: pprutil.RequestSingleSourceProvider("core")})),
+		component.RequireDep(webhookserver.New(webhookserver.Args{})),
+		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}, true),
 	)
 }
