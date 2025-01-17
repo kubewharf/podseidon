@@ -52,7 +52,7 @@ func DeclareMuxImpl[Args any, Options any, Deps any, State any, Interface any](
 		implName := implNameFn(implArgs)
 
 		implComp := Declare(
-			func(Args) string { return fmt.Sprintf("%s-%s", muxName, implName) },
+			func(Args) string { return fmt.Sprintf("%s.%s", muxName, implName) },
 			optionsFn,
 			depsFn,
 			init,
