@@ -289,11 +289,11 @@ func testReconcile(
 			CompactThreshold: ptr.To(int32(100)),
 			AggregationRate:  ptr.To(time.Duration(0)),
 		}),
-		synctime.ProvideClock(clk),
+		synctime.ProvideClock(clk, true),
 		component.RequireDep(aggregator.NewController(aggregator.ControllerArgs{
 			Clock: clk,
 		})),
-		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}),
+		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}, true),
 	}, []string{"--klog-v=6"})
 
 	waitAndAssert(ctx, t, coreClient, reconcileCh, tc.ExpectInitial)

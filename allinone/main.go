@@ -66,6 +66,6 @@ func main() {
 		)),
 		component.RequireDep(monitor.New(monitor.Args{})),
 		component.RequireDep(webhookserver.New(webhookserver.Args{})),
-		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}),
+		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}, true),
 	)
 }

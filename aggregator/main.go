@@ -46,7 +46,7 @@ func main() {
 		component.RequireDep(aggregator.NewController(aggregator.ControllerArgs{
 			Clock: clock.RealClock{},
 		})),
-		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}),
+		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}, true),
 		synctime.DefaultImpls,
 		component.RequireDep(updatetrigger.New(updatetrigger.Args{})),
 	)

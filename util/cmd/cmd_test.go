@@ -228,7 +228,7 @@ type MuxImpl2 struct{}
 
 func (MuxImpl2) Which() int { return 2 }
 
-func declareMuxImpl(implName string, impl MuxInterface, isInited *int) func(*component.DepRequests) {
+func declareMuxImpl(implName string, impl MuxInterface, isInited *int, isDefault bool) func(*component.DepRequests) {
 	return component.DeclareMuxImpl(
 		"select",
 		func(*int) string { return implName },
@@ -240,7 +240,7 @@ func declareMuxImpl(implName string, impl MuxInterface, isInited *int) func(*com
 		},
 		util.Zero[component.Lifecycle[*int, util.Empty, util.Empty, util.Empty]](),
 		func(*component.Data[*int, util.Empty, util.Empty, util.Empty]) MuxInterface { return impl },
-	)(isInited)
+	)(isInited, isDefault)
 }
 
 type muxInterfaceUserArgs struct {
@@ -279,8 +279,8 @@ func TestMuxResolveDefault(t *testing.T) {
 	isImplInited := 0
 
 	cmd.MockStartupWithCliArgs(context.Background(), []func(*component.DepRequests){
-		declareMuxImpl("impl1", MuxImpl1{}, &isImplInited),
-		declareMuxImpl("impl2", MuxImpl2{}, &isImplInited),
+		declareMuxImpl("impl1", MuxImpl1{}, &isImplInited, true),
+		declareMuxImpl("impl2", MuxImpl2{}, &isImplInited, false),
 		component.RequireDep(muxInterfaceUser(muxInterfaceUserArgs{initWrite: &initWrite, startWrite: &startWrite})),
 	}, []string{})
 
@@ -297,8 +297,8 @@ func TestMuxResolveSpecified(t *testing.T) {
 	isImplInited := 0
 
 	cmd.MockStartupWithCliArgs(context.Background(), []func(*component.DepRequests){
-		declareMuxImpl("impl1", MuxImpl1{}, &isImplInited),
-		declareMuxImpl("impl2", MuxImpl2{}, &isImplInited),
+		declareMuxImpl("impl1", MuxImpl1{}, &isImplInited, true),
+		declareMuxImpl("impl2", MuxImpl2{}, &isImplInited, false),
 		component.RequireDep(muxInterfaceUser(muxInterfaceUserArgs{initWrite: &initWrite, startWrite: &startWrite})),
 	}, []string{"--select=impl2"})
 
@@ -312,8 +312,8 @@ func TestMuxInvalidOption(t *testing.T) {
 
 	assert.PanicsWithError(t, `invalid argument "nosuchimpl" for "--select" flag: unknown option "nosuchimpl"`, func() {
 		cmd.MockStartupWithCliArgs(context.Background(), []func(*component.DepRequests){
-			declareMuxImpl("impl1", MuxImpl1{}, new(int)),
-			declareMuxImpl("impl2", MuxImpl2{}, new(int)),
+			declareMuxImpl("impl1", MuxImpl1{}, new(int), true),
+			declareMuxImpl("impl2", MuxImpl2{}, new(int), false),
 			component.RequireDep(muxInterfaceUser(muxInterfaceUserArgs{initWrite: new(int), startWrite: new(int)})),
 		}, []string{"--select=nosuchimpl"})
 	})

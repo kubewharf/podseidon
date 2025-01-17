@@ -47,8 +47,8 @@ func DeclareMuxImpl[Args any, Options any, Deps any, State any, Interface any](
 	init func(context.Context, Args, Options, Deps) (*State, error),
 	lifecycle Lifecycle[Args, Options, Deps, State],
 	api func(*Data[Args, Options, Deps, State]) Interface,
-) func(Args) func(*DepRequests) {
-	return func(implArgs Args) func(*DepRequests) {
+) func(args Args, isDefault bool) func(*DepRequests) {
+	return func(implArgs Args, isDefault bool) func(*DepRequests) {
 		implName := implNameFn(implArgs)
 
 		implComp := Declare(
@@ -70,7 +70,11 @@ func DeclareMuxImpl[Args any, Options any, Deps any, State any, Interface any](
 			prevArgs.impls[implName] = implComp
 			prevDeps.impls[implName] = DepPtr(reqs, implComp)
 
-			if prevArgs.defaultOption.IsNone() {
+			if isDefault {
+				if prevDefault, hasDefault := prevArgs.defaultOption.Get(); hasDefault {
+					panic(fmt.Sprintf("multiple implementations (%s and %s) provided as default", prevDefault, implName))
+				}
+
 				prevArgs.defaultOption = optional.Some(implName)
 			}
 		})(
@@ -157,7 +161,7 @@ func (args muxArgs[Interface]) addFlags(fs *flag.FlagSet) muxOptions {
 
 		return utilflag.EnumFromMap(implNames).
 			TypeName("type").
-			Default(args.defaultOption.MustGet(fmt.Sprintf("no implementations for %v provided", util.Type[Interface]()))).
+			Default(args.defaultOption.MustGet(fmt.Sprintf("no implementations for %v provided as default", util.Type[Interface]()))).
 			Flag(fs, utilflag.EmptyFlagName, description)
 	})
 

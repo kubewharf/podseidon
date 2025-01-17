@@ -36,8 +36,8 @@ var RequestPodInterpreter = component.ProvideMux[PodInterpreter](
 )
 
 var DefaultImpls = component.RequireDeps(
-	ProvideClock(clock.RealClock{}),
-	ProvideStatus(util.Empty{}),
+	ProvideClock(clock.RealClock{}, true),
+	ProvideStatus(util.Empty{}, false),
 )
 
 // PodInterpreter determines the last timestamp a pod was updated from the object.
