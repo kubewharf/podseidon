@@ -61,6 +61,7 @@ var NewIndexedInformer = component.Declare[IndexedInformerArgs, informerOptions,
 	},
 	func(_ context.Context, _ IndexedInformerArgs, _ informerOptions, deps informerDeps) (*informerState, error) {
 		return &informerState{
+			started:       atomic.Bool{},
 			isSourceIdent: deps.sourceProvider.Get().IsSourceIdentifying(),
 			sources:       atomic.Pointer[map[SourceName]*sourceState]{},
 			postHandlers:  nil,
@@ -84,6 +85,8 @@ var NewIndexedInformer = component.Declare[IndexedInformerArgs, informerOptions,
 					ctx = leaderCtx
 				}
 
+				state.started.Store(true)
+
 				updateCh := deps.sourceProvider.Get().Watch(ctx)
 
 				for {
@@ -102,6 +105,10 @@ var NewIndexedInformer = component.Declare[IndexedInformerArgs, informerOptions,
 		HealthChecks: func(state *informerState) component.HealthChecks {
 			return component.HealthChecks{
 				"informers-synced": func() error {
+					if !state.started.Load() {
+						return nil // report as healthy if leader is not elected
+					}
+
 					if !state.HasSynced() {
 						return errors.TagErrorf("InformersNotSynced", "some informers have not synced yet")
 					}
@@ -175,6 +182,8 @@ type SourceDesc struct {
 }
 
 type informerState struct {
+	started atomic.Bool
+
 	isSourceIdent bool
 	sources       atomic.Pointer[map[SourceName]*sourceState]
 	postHandlers  []func(PodProtectorKey)
