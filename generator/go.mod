@@ -7,9 +7,9 @@ require (
 	github.com/kubewharf/podseidon/client v0.0.0
 	github.com/kubewharf/podseidon/util v0.0.0
 	github.com/stretchr/testify v1.10.0
-	k8s.io/api v0.32.0
-	k8s.io/apimachinery v0.32.0
-	k8s.io/client-go v0.32.0
+	k8s.io/api v0.32.1
+	k8s.io/apimachinery v0.32.1
+	k8s.io/client-go v0.32.1
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738
 )
