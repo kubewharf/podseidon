@@ -19,9 +19,7 @@ import (
 	"context"
 	goerrors "errors"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -32,6 +30,7 @@ import (
 	"github.com/kubewharf/podseidon/util/errors"
 	utilflag "github.com/kubewharf/podseidon/util/flag"
 	utilhealthz "github.com/kubewharf/podseidon/util/healthz"
+	"github.com/kubewharf/podseidon/util/shutdown"
 	"github.com/kubewharf/podseidon/util/util"
 )
 
@@ -52,7 +51,10 @@ func Run(dependencies ...func(*component.DepRequests)) {
 func tryRun(requests []func(*component.DepRequests)) error {
 	healthzHandler := &healthz.Handler{Checks: map[string]healthz.Checker{}}
 
-	var healthzServer component.Dep[*utilhealthz.Api]
+	var (
+		healthzServer    component.Dep[*utilhealthz.Api]
+		shutdownNotifier component.Dep[*shutdown.Notifier]
+	)
 
 	requests = util.AppendSliceCopy(
 		requests,
@@ -60,6 +62,9 @@ func tryRun(requests []func(*component.DepRequests)) error {
 			healthzServer = component.DepPtr(reqs, utilhealthz.NewServer(utilhealthz.Args{
 				Handler: healthzHandler,
 			}))
+		},
+		func(reqs *component.DepRequests) {
+			shutdownNotifier = component.DepPtr(reqs, shutdown.New(util.Empty{}))
 		},
 	)
 
@@ -73,7 +78,9 @@ func tryRun(requests []func(*component.DepRequests)) error {
 
 	components = component.TrimNonRequested(components)
 
-	ctx, cancelFunc := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	baseCtx := context.Background()
+
+	ctx, cancelFunc := context.WithCancel(baseCtx)
 	defer cancelFunc()
 
 	pflag.CommandLine.VisitAll(func(f *pflag.Flag) {
@@ -90,6 +97,8 @@ func tryRun(requests []func(*component.DepRequests)) error {
 		})
 	}
 
+	shutdownNotifier.Get().CallOnStop(cancelFunc)
+
 	if err := startComponents(ctx, components); err != nil {
 		return err
 	}
@@ -98,7 +107,7 @@ func tryRun(requests []func(*component.DepRequests)) error {
 
 	<-ctx.Done()
 
-	shutdownCtx, shutdownCancelFunc := context.WithTimeout(context.Background(), shutdownTimeout)
+	shutdownCtx, shutdownCancelFunc := context.WithTimeout(baseCtx, shutdownTimeout)
 	defer shutdownCancelFunc()
 
 	for i := len(components) - 1; i >= 0; i-- {

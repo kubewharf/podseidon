@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/podseidon/util/errors"
 	"github.com/kubewharf/podseidon/util/o11y"
 	"github.com/kubewharf/podseidon/util/optional"
+	"github.com/kubewharf/podseidon/util/shutdown"
 	"github.com/kubewharf/podseidon/util/util"
 )
 
@@ -89,6 +90,7 @@ var NewElector = component.Declare(
 				ClusterName: args.ClusterName,
 				Component:   fmt.Sprintf("%s-leader-election", args.ElectorName),
 			})),
+			Shutdown: component.DepPtr(requests, shutdown.New(util.Empty{})),
 			Observer: o11y.Request[ElectorObserver](requests),
 		}
 	},
@@ -163,6 +165,7 @@ type ElectorOptions struct {
 type ElectorDeps struct {
 	KubeConfig    component.Dep[*Client]
 	EventRecorder component.Dep[record.EventRecorder]
+	Shutdown      component.Dep[*shutdown.Notifier]
 	Observer      component.Dep[ElectorObserver]
 }
 
@@ -238,6 +241,7 @@ func runElector(
 		Callbacks: state.createCallbacks(
 			ctx,
 			deps.Observer.Get(),
+			deps.Shutdown.Get(),
 			args.ElectorName,
 			args.ClusterName,
 			*options.RenewDeadline,
@@ -272,6 +276,7 @@ func runElector(
 func (state *ElectorState) createCallbacks(
 	ctx context.Context,
 	observer ElectorObserver,
+	shutdownNotifier *shutdown.Notifier,
 	electorName ElectorName,
 	clusterName ClusterName,
 	renewDeadline time.Duration,
@@ -297,6 +302,7 @@ func (state *ElectorState) createCallbacks(
 		},
 		OnStoppedLeading: func() {
 			observer.Lost(ctx, arg)
+			shutdownNotifier.Close()
 		},
 		OnNewLeader: func(_ string) {},
 	}
