@@ -7,7 +7,7 @@ require (
 	github.com/itchyny/gojq v0.12.17
 	github.com/segmentio/golines v0.12.2
 	golang.org/x/tools v0.29.0
-	k8s.io/code-generator v0.32.0
+	k8s.io/code-generator v0.32.1
 	mvdan.cc/gofumpt v0.7.0
 	sigs.k8s.io/controller-tools v0.17.1
 )
