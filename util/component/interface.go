@@ -250,7 +250,8 @@ func ResolveList(requestFns []func(*DepRequests)) []NamedComponent {
 	componentMap := map[string]*componentMapEntry{}
 
 	for _, request := range requests.requests {
-		resolveRequest(componentMap, request, mainRequester)
+		_, comp, api := resolveRequest(componentMap, request, mainRequester)
+		request.set(comp, api)
 	}
 
 	return toposortComponentList(componentMap)
