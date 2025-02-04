@@ -16,66 +16,98 @@ package labelindex_test
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/kubewharf/podseidon/util/iter"
 	"github.com/kubewharf/podseidon/util/labelindex"
 )
 
-const numSets = 1000000
-
 func BenchmarkSetsInsert(b *testing.B) {
 	index := labelindex.NewSets[string]()
+	rng := rand.New(rand.NewChaCha8([32]byte{}))
 
-	for appId := range b.N {
-		index.Track(fmt.Sprint(appId), map[string]string{
-			"aaa":   "aaa",
-			"appId": fmt.Sprint(-appId),
-			"zzz":   "zzz",
+	items := make([]iter.Pair[string, map[string]string], b.N/2*2)
+	appId := 0
+	subAppId := 0
+
+	for itemId := range b.N / 2 {
+		if rng.IntN(2) == 0 {
+			appId++
+			subAppId = 0
+		} else {
+			subAppId++
+		}
+
+		items[itemId] = iter.NewPair(fmt.Sprintf("%d-%d", appId, subAppId), map[string]string{
+			"aaa":    "aaa",
+			"appId":  fmt.Sprint(appId),
+			"subApp": fmt.Sprint(subAppId),
+			"zzz":    "zzz",
 		})
-	}
-
-	for appId := range b.N {
-		index.Track(fmt.Sprint(appId), map[string]string{
-			"aaa":   "aaa",
-			"appId": fmt.Sprint(appId),
-			"zzz":   "zzz",
-		})
-	}
-}
-
-func BenchmarkSetsQueryBroadExact(b *testing.B) {
-	// Generate data
-	index := labelindex.NewSets[string]()
-
-	for appId := range numSets {
-		index.Track(fmt.Sprint(appId), map[string]string{
-			"aaa":   "aaa",
-			"appId": fmt.Sprint(appId),
-			"zzz":   "zzz",
+		items[itemId+b.N/2] = iter.NewPair(fmt.Sprintf("%d-%d", appId, subAppId), map[string]string{
+			"aaa":    "aaa",
+			"appId":  fmt.Sprint(-appId),
+			"subApp": fmt.Sprint(subAppId),
+			"zzz":    "zzz",
 		})
 	}
 
 	b.ResetTimer()
 
-	for appId := range b.N {
-		appIdString := fmt.Sprint(appId % numSets)
+	for _, item := range items {
+		index.Track(item.Left, item.Right)
+	}
+}
 
-		resultIter, err := index.Query(metav1.LabelSelector{
+func BenchmarkSetsQueryBroad(b *testing.B) {
+	// Generate data
+	index := labelindex.NewSets[string]()
+	rng := rand.New(rand.NewChaCha8([32]byte{}))
+
+	appId := 0
+	subAppId := 0
+
+	for appId < b.N {
+		if rng.IntN(2) == 0 {
+			appId++
+			subAppId = 0
+		} else {
+			subAppId++
+		}
+
+		index.Track(fmt.Sprintf("%d-%d", appId, subAppId), map[string]string{
+			"aaa":    "aaa",
+			"appId":  fmt.Sprint(appId),
+			"subApp": fmt.Sprint(subAppId),
+			"zzz":    "zzz",
+		})
+	}
+
+	queries := iter.Map(iter.Range(0, b.N), func(appId int) metav1.LabelSelector {
+		return metav1.LabelSelector{
 			MatchLabels: map[string]string{
 				"aaa":   "aaa",
-				"appId": appIdString,
+				"appId": fmt.Sprint(appId),
 				"zzz":   "zzz",
 			},
-		})
+		}
+	}).CollectSlice()
+
+	b.ResetTimer()
+
+	for _, query := range queries {
+		resultIter, err := index.Query(query)
 		require.NoError(b, err)
 
-		result := resultIter.CollectSlice()
+		resultCount := resultIter.Count()
 
-		assert.Len(b, result, 1)
-		assert.Equal(b, []string{appIdString}, result)
+		if resultCount == 0 {
+			b.Fail()
+			b.Logf("query %v yields no results", query)
+		}
 	}
 }

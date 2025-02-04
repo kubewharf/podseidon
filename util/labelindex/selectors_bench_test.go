@@ -16,71 +16,100 @@ package labelindex_test
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/kubewharf/podseidon/util/iter"
 	"github.com/kubewharf/podseidon/util/labelindex"
 )
 
-const numSelectors = 10000
-
 func BenchmarkSelectorsInsert(b *testing.B) {
 	index := labelindex.NewSelectors[string]()
+	rng := rand.New(rand.NewChaCha8([32]byte{}))
 
-	for appId := range b.N {
-		err := index.Track(fmt.Sprint(appId), metav1.LabelSelector{
-			MatchLabels: map[string]string{
-				"aaa":   "aaa",
-				"appId": fmt.Sprint(-appId),
-				"zzz":   "zzz",
-			},
-		})
-		require.NoError(b, err)
-	}
+	items := make([]iter.Pair[string, metav1.LabelSelector], b.N/2*2)
+	appId := 0
+	subAppId := 0
 
-	for appId := range b.N {
-		err := index.Track(fmt.Sprint(appId), metav1.LabelSelector{
-			MatchLabels: map[string]string{
-				"aaa":   "aaa",
-				"appId": fmt.Sprint(appId),
-				"zzz":   "zzz",
-			},
-		})
-		require.NoError(b, err)
-	}
-}
+	for itemId := range b.N / 2 {
+		if rng.IntN(2) == 0 {
+			appId++
+			subAppId = 0
+		} else {
+			subAppId++
+		}
 
-func BenchmarkSelectorsQueryBroadExact(b *testing.B) {
-	// Generate data
-	index := labelindex.NewSelectors[string]()
-
-	for appId := range numSelectors {
-		err := index.Track(fmt.Sprint(appId), metav1.LabelSelector{
-			MatchLabels: map[string]string{
-				"aaa":   "aaa",
-				"appId": fmt.Sprint(appId),
-				"zzz":   "zzz",
-			},
-		})
-		require.NoError(b, err)
+		items[itemId] = iter.NewPair(fmt.Sprintf("%d-%d", appId, subAppId), metav1.LabelSelector{MatchLabels: map[string]string{
+			"aaa":    "aaa",
+			"appId":  fmt.Sprint(appId),
+			"subApp": fmt.Sprint(subAppId),
+			"zzz":    "zzz",
+		}})
+		items[itemId+b.N/2] = iter.NewPair(fmt.Sprintf("%d-%d", appId, subAppId), metav1.LabelSelector{MatchLabels: map[string]string{
+			"aaa":    "aaa",
+			"appId":  fmt.Sprint(-appId),
+			"subApp": fmt.Sprint(subAppId),
+			"zzz":    "zzz",
+		}})
 	}
 
 	b.ResetTimer()
 
-	for appId := range b.N {
-		appIdString := fmt.Sprint(appId % numSelectors)
+	for _, item := range items {
+		err := index.Track(item.Left, item.Right)
+		if err != nil {
+			b.Log(err)
+			b.FailNow()
+		}
+	}
+}
 
-		resultIter, _ := index.Query(map[string]string{
-			"aaa":   "aaa",
-			"appId": appIdString,
-			"zzz":   "zzz",
-		})
-		result := resultIter.CollectSlice()
+func BenchmarkSelectorsQueryBroad(b *testing.B) {
+	// Generate data
+	index := labelindex.NewSelectors[string]()
 
-		assert.Len(b, result, 1)
-		assert.Equal(b, []string{appIdString}, result)
+	rng := rand.New(rand.NewChaCha8([32]byte{}))
+
+	appId := 0
+	subAppId := 0
+
+	for appId < b.N {
+		err := index.Track(fmt.Sprintf("%d-%d", appId, subAppId), metav1.LabelSelector{MatchLabels: map[string]string{
+			"aaa":    "aaa",
+			"appId":  fmt.Sprint(appId),
+			"subApp": fmt.Sprint(subAppId),
+			"zzz":    "zzz",
+		}})
+		if err != nil {
+			b.Log(err)
+			b.FailNow()
+		}
+
+		if rng.IntN(2) == 0 {
+			appId++
+			subAppId = 0
+		} else {
+			subAppId++
+		}
+	}
+
+	queries := iter.Map(iter.Range(0, b.N), func(appId int) map[string]string {
+		return map[string]string{
+			"aaa":    "aaa",
+			"appId":  fmt.Sprint(appId),
+			"subApp": "0",
+			"zzz":    "zzz",
+		}
+	}).CollectSlice()
+
+	b.ResetTimer()
+
+	for _, query := range queries {
+		resultIter, _ := index.Query(query)
+		result := resultIter.Count()
+		assert.Equal(b, uint64(1), result)
 	}
 }
