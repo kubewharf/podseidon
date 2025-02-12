@@ -17,14 +17,14 @@
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	gentype "k8s.io/client-go/gentype"
 
-	v1alpha1 "github.com/kubewharf/podseidon/apis/v1alpha1"
+	apisv1alpha1 "github.com/kubewharf/podseidon/apis/v1alpha1"
 	scheme "github.com/kubewharf/podseidon/client/clientset/versioned/scheme"
 )
 
@@ -36,26 +36,14 @@ type PodProtectorsGetter interface {
 
 // PodProtectorInterface has methods to work with PodProtector resources.
 type PodProtectorInterface interface {
-	Create(
-		ctx context.Context,
-		podProtector *v1alpha1.PodProtector,
-		opts v1.CreateOptions,
-	) (*v1alpha1.PodProtector, error)
-	Update(
-		ctx context.Context,
-		podProtector *v1alpha1.PodProtector,
-		opts v1.UpdateOptions,
-	) (*v1alpha1.PodProtector, error)
+	Create(ctx context.Context, podProtector *apisv1alpha1.PodProtector, opts v1.CreateOptions) (*apisv1alpha1.PodProtector, error)
+	Update(ctx context.Context, podProtector *apisv1alpha1.PodProtector, opts v1.UpdateOptions) (*apisv1alpha1.PodProtector, error)
 	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-	UpdateStatus(
-		ctx context.Context,
-		podProtector *v1alpha1.PodProtector,
-		opts v1.UpdateOptions,
-	) (*v1alpha1.PodProtector, error)
+	UpdateStatus(ctx context.Context, podProtector *apisv1alpha1.PodProtector, opts v1.UpdateOptions) (*apisv1alpha1.PodProtector, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*v1alpha1.PodProtector, error)
-	List(ctx context.Context, opts v1.ListOptions) (*v1alpha1.PodProtectorList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*apisv1alpha1.PodProtector, error)
+	List(ctx context.Context, opts v1.ListOptions) (*apisv1alpha1.PodProtectorList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
 	Patch(
 		ctx context.Context,
@@ -64,24 +52,25 @@ type PodProtectorInterface interface {
 		data []byte,
 		opts v1.PatchOptions,
 		subresources ...string,
-	) (result *v1alpha1.PodProtector, err error)
+	) (result *apisv1alpha1.PodProtector, err error)
 	PodProtectorExpansion
 }
 
 // podProtectors implements PodProtectorInterface
 type podProtectors struct {
-	*gentype.ClientWithList[*v1alpha1.PodProtector, *v1alpha1.PodProtectorList]
+	*gentype.ClientWithList[*apisv1alpha1.PodProtector, *apisv1alpha1.PodProtectorList]
 }
 
 // newPodProtectors returns a PodProtectors
 func newPodProtectors(c *PodseidonV1alpha1Client, namespace string) *podProtectors {
 	return &podProtectors{
-		gentype.NewClientWithList[*v1alpha1.PodProtector, *v1alpha1.PodProtectorList](
+		gentype.NewClientWithList[*apisv1alpha1.PodProtector, *apisv1alpha1.PodProtectorList](
 			"podprotectors",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			namespace,
-			func() *v1alpha1.PodProtector { return &v1alpha1.PodProtector{} },
-			func() *v1alpha1.PodProtectorList { return &v1alpha1.PodProtectorList{} }),
+			func() *apisv1alpha1.PodProtector { return &apisv1alpha1.PodProtector{} },
+			func() *apisv1alpha1.PodProtectorList { return &apisv1alpha1.PodProtectorList{} },
+		),
 	}
 }

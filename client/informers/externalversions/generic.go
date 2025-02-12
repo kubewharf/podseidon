@@ -17,7 +17,7 @@
 package externalversions
 
 import (
-	"fmt"
+	fmt "fmt"
 
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
@@ -49,16 +49,11 @@ func (f *genericInformer) Lister() cache.GenericLister {
 
 // ForResource gives generic access to a shared informer of the matching type
 // TODO extend this to unknown resources with a client pool
-func (f *sharedInformerFactory) ForResource(
-	resource schema.GroupVersionResource,
-) (GenericInformer, error) {
+func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
 	// Group=podseidon.kubewharf.io, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("podprotectors"):
-		return &genericInformer{
-			resource: resource.GroupResource(),
-			informer: f.Podseidon().V1alpha1().PodProtectors().Informer(),
-		}, nil
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Podseidon().V1alpha1().PodProtectors().Informer()}, nil
 	}
 
 	return nil, fmt.Errorf("no informer found for %v", resource)
