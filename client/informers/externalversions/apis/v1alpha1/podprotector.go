@@ -17,7 +17,7 @@
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,17 +25,17 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 
-	apisv1alpha1 "github.com/kubewharf/podseidon/apis/v1alpha1"
+	podseidonapisv1alpha1 "github.com/kubewharf/podseidon/apis/v1alpha1"
 	versioned "github.com/kubewharf/podseidon/client/clientset/versioned"
 	internalinterfaces "github.com/kubewharf/podseidon/client/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/kubewharf/podseidon/client/listers/apis/v1alpha1"
+	apisv1alpha1 "github.com/kubewharf/podseidon/client/listers/apis/v1alpha1"
 )
 
 // PodProtectorInformer provides access to a shared informer and lister for
 // PodProtectors.
 type PodProtectorInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.PodProtectorLister
+	Lister() apisv1alpha1.PodProtectorLister
 }
 
 type podProtectorInformer struct {
@@ -72,29 +72,22 @@ func NewFilteredPodProtectorInformer(
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.PodseidonV1alpha1().
-					PodProtectors(namespace).
-					List(context.TODO(), options)
+				return client.PodseidonV1alpha1().PodProtectors(namespace).List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.PodseidonV1alpha1().
-					PodProtectors(namespace).
-					Watch(context.TODO(), options)
+				return client.PodseidonV1alpha1().PodProtectors(namespace).Watch(context.TODO(), options)
 			},
 		},
-		&apisv1alpha1.PodProtector{},
+		&podseidonapisv1alpha1.PodProtector{},
 		resyncPeriod,
 		indexers,
 	)
 }
 
-func (f *podProtectorInformer) defaultInformer(
-	client versioned.Interface,
-	resyncPeriod time.Duration,
-) cache.SharedIndexInformer {
+func (f *podProtectorInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
 	return NewFilteredPodProtectorInformer(
 		client,
 		f.namespace,
@@ -105,9 +98,9 @@ func (f *podProtectorInformer) defaultInformer(
 }
 
 func (f *podProtectorInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apisv1alpha1.PodProtector{}, f.defaultInformer)
+	return f.factory.InformerFor(&podseidonapisv1alpha1.PodProtector{}, f.defaultInformer)
 }
 
-func (f *podProtectorInformer) Lister() v1alpha1.PodProtectorLister {
-	return v1alpha1.NewPodProtectorLister(f.Informer().GetIndexer())
+func (f *podProtectorInformer) Lister() apisv1alpha1.PodProtectorLister {
+	return apisv1alpha1.NewPodProtectorLister(f.Informer().GetIndexer())
 }
