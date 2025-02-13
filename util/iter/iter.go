@@ -252,6 +252,17 @@ func (iter Iter[T]) CollectSlice() []T {
 	return output
 }
 
+func (iter Iter[T]) Count() uint64 {
+	output := uint64(0)
+
+	iter(func(_ T) Flow {
+		output++
+		return Continue
+	})
+
+	return output
+}
+
 func FromMap[K comparable, V any](m map[K]V) Iter[Pair[K, V]] {
 	return func(yield Yield[Pair[K, V]]) Flow {
 		for k, v := range m {
