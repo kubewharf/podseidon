@@ -6,8 +6,8 @@ require (
 	github.com/kubewharf/podseidon/apis v0.0.0
 	github.com/kubewharf/podseidon/client v0.0.0
 	github.com/prometheus/client_golang v1.20.5
-	github.com/puzpuzpuz/xsync/v3 v3.4.1
-	github.com/spf13/pflag v1.0.5
+	github.com/puzpuzpuz/xsync/v3 v3.5.0
+	github.com/spf13/pflag v1.0.6
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948
 	k8s.io/api v0.32.1
@@ -15,7 +15,7 @@ require (
 	k8s.io/client-go v0.32.1
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738
-	sigs.k8s.io/controller-runtime v0.19.4
+	sigs.k8s.io/controller-runtime v0.20.1
 )
 
 require (
