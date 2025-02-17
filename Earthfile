@@ -232,11 +232,11 @@ fmt-work:
 
 fmt:
     BUILD +fmt-work --fmt_modules='apis client util generator aggregator webhook allinone tests'
-    BUILD +tidy --fmt_modules='apis client util generator aggregator webhook allinone tests'
+    BUILD +tidy
 
 tidy:
     LOCALLY
-    ARG fmt_modules='apis client util generator aggregator webhook allinone tests'
+    ARG fmt_modules='tools apis client util generator aggregator webhook allinone tests'
 
     FOR module IN $fmt_modules
         RUN cd $module && go mod tidy
