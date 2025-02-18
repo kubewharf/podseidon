@@ -28,7 +28,7 @@ type FakePodseidonV1alpha1 struct {
 }
 
 func (c *FakePodseidonV1alpha1) PodProtectors(namespace string) v1alpha1.PodProtectorInterface {
-	return &FakePodProtectors{c, namespace}
+	return newFakePodProtectors(c, namespace)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

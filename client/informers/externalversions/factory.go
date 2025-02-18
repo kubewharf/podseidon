@@ -65,9 +65,7 @@ func WithCustomResyncConfig(resyncConfig map[v1.Object]time.Duration) SharedInfo
 }
 
 // WithTweakListOptions sets a custom filter on all listers of the configured SharedInformerFactory.
-func WithTweakListOptions(
-	tweakListOptions internalinterfaces.TweakListOptionsFunc,
-) SharedInformerOption {
+func WithTweakListOptions(tweakListOptions internalinterfaces.TweakListOptionsFunc) SharedInformerOption {
 	return func(factory *sharedInformerFactory) *sharedInformerFactory {
 		factory.tweakListOptions = tweakListOptions
 		return factory
@@ -91,10 +89,7 @@ func WithTransform(transform cache.TransformFunc) SharedInformerOption {
 }
 
 // NewSharedInformerFactory constructs a new instance of sharedInformerFactory for all namespaces.
-func NewSharedInformerFactory(
-	client versioned.Interface,
-	defaultResync time.Duration,
-) SharedInformerFactory {
+func NewSharedInformerFactory(client versioned.Interface, defaultResync time.Duration) SharedInformerFactory {
 	return NewSharedInformerFactoryWithOptions(client, defaultResync)
 }
 
@@ -108,12 +103,7 @@ func NewFilteredSharedInformerFactory(
 	namespace string,
 	tweakListOptions internalinterfaces.TweakListOptionsFunc,
 ) SharedInformerFactory {
-	return NewSharedInformerFactoryWithOptions(
-		client,
-		defaultResync,
-		WithNamespace(namespace),
-		WithTweakListOptions(tweakListOptions),
-	)
+	return NewSharedInformerFactoryWithOptions(client, defaultResync, WithNamespace(namespace), WithTweakListOptions(tweakListOptions))
 }
 
 // NewSharedInformerFactoryWithOptions constructs a new instance of a SharedInformerFactory with additional options.
@@ -195,10 +185,7 @@ func (f *sharedInformerFactory) WaitForCacheSync(stopCh <-chan struct{}) map[ref
 
 // InformerFor returns the SharedIndexInformer for obj using an internal
 // client.
-func (f *sharedInformerFactory) InformerFor(
-	obj runtime.Object,
-	newFunc internalinterfaces.NewInformerFunc,
-) cache.SharedIndexInformer {
+func (f *sharedInformerFactory) InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
@@ -273,10 +260,7 @@ type SharedInformerFactory interface {
 
 	// InformerFor returns the SharedIndexInformer for obj using an internal
 	// client.
-	InformerFor(
-		obj runtime.Object,
-		newFunc internalinterfaces.NewInformerFunc,
-	) cache.SharedIndexInformer
+	InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer
 
 	Podseidon() apis.Interface
 }

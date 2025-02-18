@@ -113,12 +113,13 @@ informer-gen:
 code-generator:
     FROM +golang-base
 
-    BUILD +deepcopy-gen
+    COPY +deepcopy-gen/zz_generated.deepcopy.go apis/v1alpha1/zz_generated.deepcopy.go
     COPY client/go.mod client/go.sum client/
     COPY +client-gen/clientset client/clientset
     COPY +lister-gen/listers client/listers
     COPY +informer-gen/informers client/informers
 
+    SAVE ARTIFACT apis/v1alpha1/zz_generated.deepcopy.go AS LOCAL apis/v1alpha1/zz_generated.deepcopy.go
     SAVE ARTIFACT client AS LOCAL .
 
 build-base:
@@ -136,6 +137,7 @@ build-base:
     RUN --ssh cd apis && go mod download
 
     RUN rm -r client
+    COPY +deepcopy-gen/zz_generated.deepcopy.go apis/v1alpha1/zz_generated.deepcopy.go
     COPY +code-generator/client client
     RUN --ssh cd client && go mod download
 
@@ -180,9 +182,13 @@ build-image:
 
 # Generate all files that have to be committed on Git.
 generate:
-    BUILD +crd-gen
-    BUILD +code-generator
-    BUILD +fmt
+    WAIT
+        BUILD +crd-gen
+        BUILD +code-generator
+    END
+    WAIT
+        BUILD +fmt
+    END
 
 # Build all artifacts into the output directory.
 build:

@@ -17,201 +17,35 @@
 package fake
 
 import (
-	"context"
-
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	labels "k8s.io/apimachinery/pkg/labels"
-	types "k8s.io/apimachinery/pkg/types"
-	watch "k8s.io/apimachinery/pkg/watch"
-	testing "k8s.io/client-go/testing"
+	gentype "k8s.io/client-go/gentype"
 
 	v1alpha1 "github.com/kubewharf/podseidon/apis/v1alpha1"
+	apisv1alpha1 "github.com/kubewharf/podseidon/client/clientset/versioned/typed/apis/v1alpha1"
 )
 
-// FakePodProtectors implements PodProtectorInterface
-type FakePodProtectors struct {
+// fakePodProtectors implements PodProtectorInterface
+type fakePodProtectors struct {
+	*gentype.FakeClientWithList[*v1alpha1.PodProtector, *v1alpha1.PodProtectorList]
 	Fake *FakePodseidonV1alpha1
-	ns   string
 }
 
-var podprotectorsResource = v1alpha1.SchemeGroupVersion.WithResource("podprotectors")
-
-var podprotectorsKind = v1alpha1.SchemeGroupVersion.WithKind("PodProtector")
-
-// Get takes name of the podProtector, and returns the corresponding podProtector object, and an error if there is any.
-func (c *FakePodProtectors) Get(
-	ctx context.Context,
-	name string,
-	options v1.GetOptions,
-) (result *v1alpha1.PodProtector, err error) {
-	emptyResult := &v1alpha1.PodProtector{}
-	obj, err := c.Fake.
-		Invokes(
-			testing.NewGetActionWithOptions(podprotectorsResource, c.ns, name, options),
-			emptyResult,
-		)
-
-	if obj == nil {
-		return emptyResult, err
+func newFakePodProtectors(fake *FakePodseidonV1alpha1, namespace string) apisv1alpha1.PodProtectorInterface {
+	return &fakePodProtectors{
+		gentype.NewFakeClientWithList[*v1alpha1.PodProtector, *v1alpha1.PodProtectorList](
+			fake.Fake,
+			namespace,
+			v1alpha1.SchemeGroupVersion.WithResource("podprotectors"),
+			v1alpha1.SchemeGroupVersion.WithKind("PodProtector"),
+			func() *v1alpha1.PodProtector { return &v1alpha1.PodProtector{} },
+			func() *v1alpha1.PodProtectorList { return &v1alpha1.PodProtectorList{} },
+			func(dst, src *v1alpha1.PodProtectorList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.PodProtectorList) []*v1alpha1.PodProtector {
+				return gentype.ToPointerSlice(list.Items)
+			},
+			func(list *v1alpha1.PodProtectorList, items []*v1alpha1.PodProtector) {
+				list.Items = gentype.FromPointerSlice(items)
+			},
+		),
+		fake,
 	}
-	return obj.(*v1alpha1.PodProtector), err
-}
-
-// List takes label and field selectors, and returns the list of PodProtectors that match those selectors.
-func (c *FakePodProtectors) List(
-	ctx context.Context,
-	opts v1.ListOptions,
-) (result *v1alpha1.PodProtectorList, err error) {
-	emptyResult := &v1alpha1.PodProtectorList{}
-	obj, err := c.Fake.
-		Invokes(
-			testing.NewListActionWithOptions(podprotectorsResource, podprotectorsKind, c.ns, opts),
-			emptyResult,
-		)
-
-	if obj == nil {
-		return emptyResult, err
-	}
-
-	label, _, _ := testing.ExtractFromListOptions(opts)
-	if label == nil {
-		label = labels.Everything()
-	}
-	list := &v1alpha1.PodProtectorList{ListMeta: obj.(*v1alpha1.PodProtectorList).ListMeta}
-	for _, item := range obj.(*v1alpha1.PodProtectorList).Items {
-		if label.Matches(labels.Set(item.Labels)) {
-			list.Items = append(list.Items, item)
-		}
-	}
-	return list, err
-}
-
-// Watch returns a watch.Interface that watches the requested podProtectors.
-func (c *FakePodProtectors) Watch(
-	ctx context.Context,
-	opts v1.ListOptions,
-) (watch.Interface, error) {
-	return c.Fake.
-		InvokesWatch(testing.NewWatchActionWithOptions(podprotectorsResource, c.ns, opts))
-}
-
-// Create takes the representation of a podProtector and creates it.  Returns the server's representation of the podProtector, and an error, if there is any.
-func (c *FakePodProtectors) Create(
-	ctx context.Context,
-	podProtector *v1alpha1.PodProtector,
-	opts v1.CreateOptions,
-) (result *v1alpha1.PodProtector, err error) {
-	emptyResult := &v1alpha1.PodProtector{}
-	obj, err := c.Fake.
-		Invokes(
-			testing.NewCreateActionWithOptions(podprotectorsResource, c.ns, podProtector, opts),
-			emptyResult,
-		)
-
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1alpha1.PodProtector), err
-}
-
-// Update takes the representation of a podProtector and updates it. Returns the server's representation of the podProtector, and an error, if there is any.
-func (c *FakePodProtectors) Update(
-	ctx context.Context,
-	podProtector *v1alpha1.PodProtector,
-	opts v1.UpdateOptions,
-) (result *v1alpha1.PodProtector, err error) {
-	emptyResult := &v1alpha1.PodProtector{}
-	obj, err := c.Fake.
-		Invokes(
-			testing.NewUpdateActionWithOptions(podprotectorsResource, c.ns, podProtector, opts),
-			emptyResult,
-		)
-
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1alpha1.PodProtector), err
-}
-
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *FakePodProtectors) UpdateStatus(
-	ctx context.Context,
-	podProtector *v1alpha1.PodProtector,
-	opts v1.UpdateOptions,
-) (result *v1alpha1.PodProtector, err error) {
-	emptyResult := &v1alpha1.PodProtector{}
-	obj, err := c.Fake.
-		Invokes(
-			testing.NewUpdateSubresourceActionWithOptions(
-				podprotectorsResource,
-				"status",
-				c.ns,
-				podProtector,
-				opts,
-			),
-			emptyResult,
-		)
-
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1alpha1.PodProtector), err
-}
-
-// Delete takes name of the podProtector and deletes it. Returns an error if one occurs.
-func (c *FakePodProtectors) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	_, err := c.Fake.
-		Invokes(
-			testing.NewDeleteActionWithOptions(podprotectorsResource, c.ns, name, opts),
-			&v1alpha1.PodProtector{},
-		)
-
-	return err
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *FakePodProtectors) DeleteCollection(
-	ctx context.Context,
-	opts v1.DeleteOptions,
-	listOpts v1.ListOptions,
-) error {
-	action := testing.NewDeleteCollectionActionWithOptions(
-		podprotectorsResource,
-		c.ns,
-		opts,
-		listOpts,
-	)
-
-	_, err := c.Fake.Invokes(action, &v1alpha1.PodProtectorList{})
-	return err
-}
-
-// Patch applies the patch and returns the patched podProtector.
-func (c *FakePodProtectors) Patch(
-	ctx context.Context,
-	name string,
-	pt types.PatchType,
-	data []byte,
-	opts v1.PatchOptions,
-	subresources ...string,
-) (result *v1alpha1.PodProtector, err error) {
-	emptyResult := &v1alpha1.PodProtector{}
-	obj, err := c.Fake.
-		Invokes(
-			testing.NewPatchSubresourceActionWithOptions(
-				podprotectorsResource,
-				c.ns,
-				name,
-				pt,
-				data,
-				opts,
-				subresources...),
-			emptyResult,
-		)
-
-	if obj == nil {
-		return emptyResult, err
-	}
-	return obj.(*v1alpha1.PodProtector), err
 }
