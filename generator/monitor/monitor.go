@@ -127,40 +127,43 @@ type State struct {
 }
 
 func pprToStatus(ppr *podseidonv1a1.PodProtector) observer.MonitorWorkloads {
-	availableProportionPpm := int64(0)
-	if ppr.Spec.MinAvailable > 0 {
-		availableProportionPpm = min(ProportionPpmUnits, util.RoundedIntDiv(
-			int64(ppr.Status.Summary.AggregatedAvailable)*ProportionPpmUnits,
-			int64(ppr.Spec.MinAvailable),
-		))
-	}
-
 	isNonZero := 0
 	if ppr.Spec.MinAvailable > 0 {
 		isNonZero = 1
 	}
 
-	isMinCreated := 0
-	if ppr.Status.Summary.Total >= ppr.Spec.MinAvailable {
-		isMinCreated = 1
-	}
-
-	isFullyAvailable := 0
-	if ppr.Status.Summary.AggregatedAvailable >= ppr.Spec.MinAvailable {
-		isFullyAvailable = 1
-	}
-
 	return observer.MonitorWorkloads{
-		NumWorkloads:                1,
-		NumNonZeroWorkloads:         isNonZero,
-		NumMinCreatedWorkloads:      isMinCreated,
-		NumAvailableWorkloads:       isFullyAvailable,
-		MinAvailable:                int64(ppr.Spec.MinAvailable),
-		TotalReplicas:               int64(ppr.Status.Summary.Total),
-		AggregatedAvailableReplicas: int64(ppr.Status.Summary.AggregatedAvailable),
-		EstimatedAvailableReplicas:  int64(ppr.Status.Summary.EstimatedAvailable),
-		SumAvailableProportionPpm:   availableProportionPpm,
-		SumLatencyMillis:            ppr.Status.Summary.MaxLatencyMillis,
+		NumWorkloads:               1,
+		NumNonZeroWorkloads:        isNonZero,
+		MinAvailable:               int64(ppr.Spec.MinAvailable),
+		EstimatedAvailableReplicas: int64(ppr.Status.Summary.EstimatedAvailable),
+		SumLatencyMillis:           ppr.Status.Summary.MaxLatencyMillis,
+		Created:                    makeStatusCount(ppr.Status.Summary.Total, ppr.Spec.MinAvailable),
+		Available:                  makeStatusCount(ppr.Status.Summary.AggregatedAvailable, ppr.Spec.MinAvailable),
+		Ready:                      makeStatusCount(ppr.Status.Summary.AggregatedReady, ppr.Spec.MinAvailable),
+		Scheduled:                  makeStatusCount(ppr.Status.Summary.AggregatedScheduled, ppr.Spec.MinAvailable),
+		Running:                    makeStatusCount(ppr.Status.Summary.AggregatedRunning, ppr.Spec.MinAvailable),
+	}
+}
+
+func makeStatusCount(aggregated int32, minAvailable int32) observer.StatusCount {
+	meetsMinAvailable := 0
+	if aggregated >= minAvailable {
+		meetsMinAvailable = 1
+	}
+
+	proportionPpm := int64(0)
+	if minAvailable > 0 {
+		proportionPpm = min(ProportionPpmUnits, util.RoundedIntDiv(
+			int64(aggregated)*ProportionPpmUnits,
+			int64(minAvailable),
+		))
+	}
+
+	return observer.StatusCount{
+		MeetsMinAvailable:  meetsMinAvailable,
+		AggregatedReplicas: int64(aggregated),
+		SumProportionPpm:   proportionPpm,
 	}
 }
 

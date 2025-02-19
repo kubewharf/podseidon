@@ -103,6 +103,20 @@ type PodProtectorAggregation struct {
 	// Number of pods maintaining ready condition for more than MinReadySeconds when observed by aggregator.
 	// +kubebuilder:validation:Minimum=0
 	AvailableReplicas int32 `json:"availableReplicas"`
+
+	// Other fields aggregated only for debugging and monitoring purposes.
+
+	// Number of pods currently ready when observed by aggregator.
+	// This is equal to AvailableReplicas when MinReadySeconds is 0.
+	// +optional
+	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
+	// Number of pods currently scheduled when observed by aggregator.
+	// +optional
+	ScheduledReplicas int32 `json:"scheduledReplicas,omitempty"`
+	// Number of pods currently in Running phase when observed by aggregator.
+	// +optional
+	RunningReplicas int32 `json:"runningReplicas,omitempty"`
+
 	// Timestamp of the last event observed by the pod reflector of the aggregator when this snapshot was written.
 	LastEventTime metav1.MicroTime `json:"lastEventTime"`
 }
@@ -127,7 +141,7 @@ type PodProtectorAdmissionBucket struct {
 }
 
 type PodProtectorStatusSummary struct {
-	// Total number of running pods based on aggregation.
+	// Total number of non-terminating pods based on aggregation.
 	Total int32 `json:"totalReplicas"`
 	// Total number of available pods based on aggregation.
 	// Ready pods may not be shown as available if the aggregator is lagging behind.
@@ -136,4 +150,15 @@ type PodProtectorStatusSummary struct {
 	MaxLatencyMillis int64 `json:"maxLatencyMillis,omitempty"`
 	// Estimated number of available pods after deducting admission history.
 	EstimatedAvailable int32 `json:"estimatedAvailableReplicas"`
+
+	// Total number of pods currently ready based on aggregation.
+	// This is equal to AvailableReplicas when MinReadySeconds is 0.
+	// +optional
+	AggregatedReady int32 `json:"aggregatedReady,omitempty"`
+	// Total number of pods currently scheduled based on aggregation.
+	// +optional
+	AggregatedScheduled int32 `json:"aggregatedScheduled,omitempty"`
+	// Total number of pods currently in Running phase based on aggregation.
+	// +optional
+	AggregatedRunning int32 `json:"aggregatedRunning,omitempty"`
 }

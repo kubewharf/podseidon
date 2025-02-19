@@ -200,6 +200,9 @@ var _ = ginkgo.Describe("Webhook", func() {
 								Aggregation: podseidonv1a1.PodProtectorAggregation{
 									TotalReplicas:     5,
 									AvailableReplicas: 5,
+									ReadyReplicas:     5,
+									ScheduledReplicas: 5,
+									RunningReplicas:   5,
 									LastEventTime:     metav1.MicroTime{Time: readyTime},
 								},
 							},

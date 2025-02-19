@@ -44,6 +44,9 @@ func Summarize(config defaultconfig.Computed, ppr *podseidonv1a1.PodProtector) {
 		AggregatedAvailable: 0,
 		MaxLatencyMillis:    0,
 		EstimatedAvailable:  0,
+		AggregatedReady:     0,
+		AggregatedScheduled: 0,
+		AggregatedRunning:   0,
 	}
 
 	for cellId := range ppr.Status.Cells {
@@ -51,6 +54,9 @@ func Summarize(config defaultconfig.Computed, ppr *podseidonv1a1.PodProtector) {
 
 		summary.Total += cell.Aggregation.TotalReplicas
 		summary.AggregatedAvailable += cell.Aggregation.AvailableReplicas
+		summary.AggregatedReady += cell.Aggregation.ReadyReplicas
+		summary.AggregatedScheduled += cell.Aggregation.ScheduledReplicas
+		summary.AggregatedRunning += cell.Aggregation.RunningReplicas
 
 		CompactBuckets(config, &cell.History.Buckets)
 

@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/podseidon/util/errors"
 	utilflag "github.com/kubewharf/podseidon/util/flag"
 	"github.com/kubewharf/podseidon/util/haschange"
+	"github.com/kubewharf/podseidon/util/iter"
 	"github.com/kubewharf/podseidon/util/kube"
 	"github.com/kubewharf/podseidon/util/labelindex"
 	"github.com/kubewharf/podseidon/util/o11y"
@@ -637,12 +638,32 @@ func aggregateStatus(
 
 	haschange.Assign(&target.TotalReplicas, totalReplicas, changed)
 
-	availableReplicasInt := util.CountSlice(
-		relevantPods,
-		func(pod *corev1.Pod) bool { return isPodAvailable(clk, pod, ppr.Spec.MinReadySeconds, requeue) },
-	)
-	// #nosec G115 -- availableReplicasInt <= len(relevantPods) <= MaxInt32
-	availableReplicas := int32(availableReplicasInt)
+	readyReplicas := int32(0)
+	scheduledReplicas := int32(0)
+	runningReplicas := int32(0)
+	availableReplicas := int32(0)
+
+	for _, pod := range relevantPods {
+		if isPodConditionTrue(pod, corev1.PodReady) {
+			readyReplicas++
+		}
+
+		if isPodConditionTrue(pod, corev1.PodScheduled) {
+			scheduledReplicas++
+		}
+
+		if pod.Status.Phase == corev1.PodRunning {
+			runningReplicas++
+		}
+
+		if isPodAvailable(clk, pod, ppr.Spec.MinReadySeconds, requeue) {
+			availableReplicas++
+		}
+	}
+
+	haschange.Assign(&target.ReadyReplicas, readyReplicas, changed)
+	haschange.Assign(&target.ScheduledReplicas, scheduledReplicas, changed)
+	haschange.Assign(&target.RunningReplicas, runningReplicas, changed)
 	haschange.Assign(&target.AvailableReplicas, availableReplicas, changed)
 
 	obs.Aggregated(ctx, observer.Aggregated{
@@ -652,6 +673,18 @@ func aggregateStatus(
 	})
 
 	return nil
+}
+
+func isPodConditionTrue(
+	pod *corev1.Pod,
+	conditionType corev1.PodConditionType,
+) bool {
+	return iter.Any(iter.Map(
+		iter.FromSlice(pod.Status.Conditions),
+		func(condition corev1.PodCondition) bool {
+			return condition.Type == conditionType && condition.Status == corev1.ConditionTrue
+		},
+	))
 }
 
 // Tests if a pod is available.

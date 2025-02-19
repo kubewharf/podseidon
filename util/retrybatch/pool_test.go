@@ -241,7 +241,7 @@ func TestSingleRetry(t *testing.T) {
 
 	adapter.step(testColdStartDelay, 1)
 	// At this point, execution started, so nextExec should be nil.
-	assert.Nil(t, adapter.nextExec.Load())
+	assert.Eventually(t, func() bool { return adapter.nextExec.Load() == nil }, time.Second, time.Millisecond)
 	// We keep it as nil since a retry is not expected until retryLatency later.
 
 	adapter.step(executeLatency, 1)

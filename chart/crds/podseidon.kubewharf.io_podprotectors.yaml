@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.0
+    controller-gen.kubebuilder.io/version: v0.17.2
   name: podprotectors.podseidon.kubewharf.io
 spec:
   group: podseidon.kubewharf.io
@@ -240,6 +240,22 @@ spec:
                             written.
                           format: date-time
                           type: string
+                        readyReplicas:
+                          description: |-
+                            Number of pods currently ready when observed by aggregator.
+                            This is equal to AvailableReplicas when MinReadySeconds is 0.
+                          format: int32
+                          type: integer
+                        runningReplicas:
+                          description: Number of pods currently in Running phase when
+                            observed by aggregator.
+                          format: int32
+                          type: integer
+                        scheduledReplicas:
+                          description: Number of pods currently scheduled when observed
+                            by aggregator.
+                          format: int32
+                          type: integer
                         totalReplicas:
                           description: Number of non-terminated pods as observed by
                             aggregator.
@@ -273,6 +289,22 @@ spec:
                       Ready pods may not be shown as available if the aggregator is lagging behind.
                     format: int32
                     type: integer
+                  aggregatedReady:
+                    description: |-
+                      Total number of pods currently ready based on aggregation.
+                      This is equal to AvailableReplicas when MinReadySeconds is 0.
+                    format: int32
+                    type: integer
+                  aggregatedRunning:
+                    description: Total number of pods currently in Running phase based
+                      on aggregation.
+                    format: int32
+                    type: integer
+                  aggregatedScheduled:
+                    description: Total number of pods currently scheduled based on
+                      aggregation.
+                    format: int32
+                    type: integer
                   estimatedAvailableReplicas:
                     description: Estimated number of available pods after deducting
                       admission history.
@@ -284,7 +316,7 @@ spec:
                     format: int64
                     type: integer
                   totalReplicas:
-                    description: Total number of running pods based on aggregation.
+                    description: Total number of non-terminating pods based on aggregation.
                     format: int32
                     type: integer
                 required:
