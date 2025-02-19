@@ -16,7 +16,10 @@ package observer
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 
 	podseidonv1a1 "github.com/kubewharf/podseidon/apis/v1alpha1"
 
@@ -71,81 +74,7 @@ func ProvideMetrics() component.Declared[Observer] {
 				})
 			}
 
-			monitorWorkloadsHandle := metrics.RegisterMultiField(
-				deps.Registry(),
-				"generator_monitor_workloads",
-				"Global workload status",
-				metrics.NewReflectTags[util.Empty](),
-				metrics.NewField(
-					"num_workloads",
-					"Number of workload objects managed by this generator",
-					metrics.IntGauge(),
-					func(status MonitorWorkloads) int { return status.NumWorkloads },
-				),
-				metrics.NewField(
-					"num_non_zero_workloads",
-					"Number of workload objects managed by this generator with non-zero minAvailable",
-					metrics.IntGauge(),
-					func(status MonitorWorkloads) int { return status.NumNonZeroWorkloads },
-				),
-				metrics.NewField(
-					"num_min_created_workloads",
-					"Number of workload objects managed by this generator with "+
-						"the number of aggregated replicas not less than the minAvailable requirement",
-					metrics.IntGauge(),
-					func(status MonitorWorkloads) int { return status.NumMinCreatedWorkloads },
-				),
-				metrics.NewField(
-					"num_available_workloads",
-					"Number of workload objects managed by this generator with minAvailable satisfied",
-					metrics.IntGauge(),
-					func(status MonitorWorkloads) int { return status.NumAvailableWorkloads },
-				),
-				metrics.NewField(
-					"min_available",
-					"Sum of minAvailable over workloads managed by this generator",
-					metrics.Int64Gauge(),
-					func(status MonitorWorkloads) int64 { return status.MinAvailable },
-				),
-				metrics.NewField(
-					"current_total_replicas",
-					"Current aggregated sum of total replicas over workloads managed by this generator.",
-					metrics.Int64Gauge(),
-					func(status MonitorWorkloads) int64 { return status.TotalReplicas },
-				),
-				metrics.NewField(
-					"current_aggregated_available_replicas",
-					"Current aggregated sum of available replicas over workloads managed by this generator.",
-					metrics.Int64Gauge(),
-					func(status MonitorWorkloads) int64 { return status.AggregatedAvailableReplicas },
-				),
-				metrics.NewField(
-					"current_estimated_available_replicas",
-					"Current estimated sum of available replicas over workloads managed by this generator.",
-					metrics.Int64Gauge(),
-					func(status MonitorWorkloads) int64 { return status.EstimatedAvailableReplicas },
-				),
-				metrics.NewField(
-					"sum_available_proportion_ppm",
-					"Sum of the proportion of aggregated available replicas, saturated at 1, rounded to nearest ppm (parts-per-million).",
-					metrics.Int64Gauge(),
-					func(status MonitorWorkloads) int64 { return status.SumAvailableProportionPpm },
-				),
-				metrics.NewField(
-					"avg_available_proportion_ppm",
-					"Unweighted average of service availability for every PodProtector (0 to 1).",
-					metrics.FloatGauge(),
-					func(status MonitorWorkloads) float64 {
-						return float64(status.SumAvailableProportionPpm) / 1e6 / float64(status.NumNonZeroWorkloads)
-					},
-				),
-				metrics.NewField(
-					"sum_latency_millis",
-					"Sum of the .status.summary.maxLatencyMillis field over workloads managed by this generator.",
-					metrics.Int64Gauge(),
-					func(status MonitorWorkloads) int64 { return status.SumLatencyMillis },
-				),
-			)
+			monitorWorkloadsHandle := makeMonitorWorkloadsHandle(deps.Registry())
 
 			return Observer{
 				InterpretProtectors: func(context.Context, InterpretProtectors) {},
@@ -202,5 +131,118 @@ func ProvideMetrics() component.Declared[Observer] {
 				},
 			}
 		},
+	)
+}
+
+func makeMonitorWorkloadsHandle(registry *prometheus.Registry) metrics.Handle[util.Empty, MonitorWorkloads] {
+	fields := []metrics.AnyField[MonitorWorkloads]{
+		metrics.NewField(
+			"num_workloads",
+			"Number of workload objects managed by this generator",
+			metrics.IntGauge(),
+			func(status MonitorWorkloads) int { return status.NumWorkloads },
+		),
+		metrics.NewField(
+			"num_non_zero_workloads",
+			"Number of workload objects managed by this generator with non-zero minAvailable",
+			metrics.IntGauge(),
+			func(status MonitorWorkloads) int { return status.NumNonZeroWorkloads },
+		),
+		metrics.NewField(
+			"min_available",
+			"Sum of minAvailable over workloads managed by this generator",
+			metrics.Int64Gauge(),
+			func(status MonitorWorkloads) int64 { return status.MinAvailable },
+		),
+		metrics.NewField(
+			"current_estimated_available_replicas",
+			"Current estimated sum of available replicas over workloads managed by this generator.",
+			metrics.Int64Gauge(),
+			func(status MonitorWorkloads) int64 { return status.EstimatedAvailableReplicas },
+		),
+		metrics.NewField(
+			"sum_latency_millis",
+			"Sum of the .status.summary.maxLatencyMillis field over workloads managed by this generator.",
+			metrics.Int64Gauge(),
+			func(status MonitorWorkloads) int64 { return status.SumLatencyMillis },
+		),
+		metrics.NewField(
+			"total_outstanding_history",
+			"Number of non-compacted admission history over all clusters",
+			metrics.Int64Gauge(),
+			func(status MonitorWorkloads) int64 {
+				return status.Available.AggregatedReplicas - status.EstimatedAvailableReplicas
+			},
+		),
+	}
+
+	appendCountFields(&fields, "created", func(status MonitorWorkloads) StatusCount { return status.Created })
+	appendCountFields(&fields, "available", func(status MonitorWorkloads) StatusCount { return status.Available })
+	appendCountFields(&fields, "ready", func(status MonitorWorkloads) StatusCount { return status.Ready })
+	appendCountFields(&fields, "scheduled", func(status MonitorWorkloads) StatusCount { return status.Scheduled })
+	appendCountFields(&fields, "running", func(status MonitorWorkloads) StatusCount { return status.Running })
+
+	return metrics.RegisterMultiField(
+		registry,
+		"generator_monitor_workloads",
+		"Global workload status",
+		metrics.NewReflectTags[util.Empty](),
+		fields...,
+	)
+}
+
+func appendCountFields(fields *[]metrics.AnyField[MonitorWorkloads], name string, field func(MonitorWorkloads) StatusCount) {
+	*fields = append(
+		*fields,
+		metrics.NewField(
+			fmt.Sprintf("num_%s_workloads", name),
+			fmt.Sprintf("Number of workload objects managed by this generator with number of %s pods >= minAvailable.", name),
+			metrics.IntGauge(),
+			func(status MonitorWorkloads) int { return field(status).MeetsMinAvailable },
+		),
+		metrics.NewField(
+			fmt.Sprintf("proportion_%s_workloads", name),
+			fmt.Sprintf("Proportion of workload objects managed by this generator with number of %s pods >= minAvailable.", name),
+			metrics.FloatGauge(),
+			func(status MonitorWorkloads) float64 {
+				return float64(field(status).MeetsMinAvailable) / float64(status.NumWorkloads)
+			},
+		),
+		metrics.NewField(
+			fmt.Sprintf("current_aggregated_%s_workloads", name),
+			fmt.Sprintf("Current aggregated sum of %s replicas in workloads managed by this generator.", name),
+			metrics.Int64Gauge(),
+			func(status MonitorWorkloads) int64 { return field(status).AggregatedReplicas },
+		),
+		metrics.NewField(
+			fmt.Sprintf("proportion_%s_pods", name),
+			fmt.Sprintf("Ratio of the number of %s pods managed by this generator relative to the sum of minAvailable.", name),
+			metrics.FloatGauge(),
+			func(status MonitorWorkloads) float64 {
+				return float64(field(status).AggregatedReplicas) / float64(status.MinAvailable)
+			},
+		),
+		metrics.NewField(
+			fmt.Sprintf("sum_%s_proportion_ppm", name),
+			fmt.Sprintf(
+				"Sum of the proportion of %s replicas, saturated at 1 for each non-zero workload, "+
+					"rounded to nearest ppm (parts-per-million).",
+				name,
+			),
+			metrics.Int64Gauge(),
+			func(status MonitorWorkloads) int64 { return field(status).SumProportionPpm },
+		),
+		metrics.NewField(
+			fmt.Sprintf("avg_%s_proportion_ppm", name),
+			fmt.Sprintf(
+				"Sum of the proportion of %s replicas, saturated at 1 for each non-zero workload, "+
+					"rounded to nearest ppm (parts-per-million).",
+				name,
+			),
+			metrics.FloatGauge(),
+			func(status MonitorWorkloads) float64 {
+				return float64(field(status).SumProportionPpm) / float64(status.NumNonZeroWorkloads)
+			},
+		),
 	)
 }

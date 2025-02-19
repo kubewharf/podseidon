@@ -65,6 +65,10 @@ func TestReconcileEmpty(t *testing.T) {
 				AggregatedAvailable: 0,
 				MaxLatencyMillis:    0,
 				EstimatedAvailable:  0,
+
+				AggregatedReady:     0,
+				AggregatedScheduled: 5,
+				AggregatedRunning:   5,
 			},
 		},
 		ExpectLater: optional.None[ExpectLaterState](),
@@ -90,6 +94,10 @@ func TestReconcileAllAvailable(t *testing.T) {
 				AggregatedAvailable: 5,
 				MaxLatencyMillis:    0,
 				EstimatedAvailable:  5,
+
+				AggregatedReady:     5,
+				AggregatedScheduled: 5,
+				AggregatedRunning:   5,
 			},
 		},
 		ExpectLater: optional.None[ExpectLaterState](),
@@ -120,6 +128,10 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 				AggregatedAvailable: 3,
 				MaxLatencyMillis:    0,
 				EstimatedAvailable:  3,
+
+				AggregatedReady:     3,
+				AggregatedScheduled: 5,
+				AggregatedRunning:   5,
 			},
 		},
 		ExpectLater: optional.Some(ExpectLaterState{
@@ -131,6 +143,10 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 					AggregatedAvailable: 5,
 					MaxLatencyMillis:    0,
 					EstimatedAvailable:  5,
+
+					AggregatedReady:     5,
+					AggregatedScheduled: 5,
+					AggregatedRunning:   5,
 				},
 			},
 		}),
@@ -165,7 +181,13 @@ func (setup PodSetup) makePod(clk clock.Clock) *corev1.Pod {
 					Status:             corev1.ConditionFalse,
 					LastTransitionTime: metav1.Time{Time: clk.Now()},
 				},
+				{
+					Type:               corev1.PodScheduled,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.Time{Time: clk.Now()},
+				},
 			},
+			Phase: corev1.PodRunning,
 		},
 	}
 

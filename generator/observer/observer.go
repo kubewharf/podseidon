@@ -89,6 +89,11 @@ const (
 	ActionError               Action = "Error"
 )
 
+// Note about data types:
+// number of pods => int64, max value = max(deployment.spec.replicas) * {number of pprs}
+// number of pprs => int, delegated from len(pprs)
+// ppm sum => int64, max value = {number of pprs} * 1000000
+
 type MonitorWorkloads struct {
 	// Number of workload objects managed by this generator.
 	NumWorkloads int
@@ -96,59 +101,76 @@ type MonitorWorkloads struct {
 	// Number of workload objects managed by this generator with non-zero minAvailable.
 	NumNonZeroWorkloads int
 
-	// Number of workload objects managed by this generator with
-	// the number of aggregated replicas not less than the minAvailable requirement.
-	// This is useful for detecting cases if aggregator is not properly deployed
-	// or as a less sensitive alternative of `NumAvailableWorkloads`
-	// to detect pods not getting created at all.
-	NumMinCreatedWorkloads int
-
-	// Number of workload objects managed by this generator with minAvailable satisfied.
-	NumAvailableWorkloads int
-
 	// Sum of minAvailable over workloads managed by this generator.
 	MinAvailable int64
-
-	// Sum of total aggregated replicas over workloads managed by this generator.
-	TotalReplicas int64
-
-	// Sum of available aggregated replicas over workloads managed by this generator.
-	AggregatedAvailableReplicas int64
 
 	// Sum of available estimated replicas over workloads managed by this generator.
 	EstimatedAvailableReplicas int64
 
-	// Sum of the proportion of aggregated available replicas, saturated at 1, rounded to nearest ppm (parts-per-million).
-	// Workloads with zero minAvailable do not contribute to this sum.
-	// When divided by NumNonZeroWorkloads, this is the unweighted average of service availability for every PodProtector.
-	SumAvailableProportionPpm int64
-
 	// Sum of the .status.summary.maxLatencyMillis field over workloads managed by this generator.
 	SumLatencyMillis int64
+
+	// Counts all created non-terminating pods.
+	Created StatusCount
+	// Counts all available pods.
+	Available StatusCount
+	// Counts all ready pods without considering minReadySeconds.
+	Ready StatusCount
+	// Counts all scheduled pods.
+	Scheduled StatusCount
+	// Counts all running pods.
+	Running StatusCount
+}
+
+// Statistics regarding a specific type of status.
+type StatusCount struct {
+	// Number of workloads where the number of pods that satisfy the required status meets is greater than or equal to spec.minAvailable.
+	MeetsMinAvailable int
+	// Number of pods that satisfy the required status as observed by the aggregator.
+	AggregatedReplicas int64
+	// Sum of the proportion of aggregated replicas satisfying the required status,
+	// saturated at 1 for each workload, rounded to nearest ppm (parts-per-million).
+	// Workloads with zero minAvailable do not contribute to this sum.
+	// When divided by NumNonZeroWorkloads, this is the average status satisfaction with equal weight from each workload.
+	SumProportionPpm int64
 }
 
 func (dest *MonitorWorkloads) Add(delta MonitorWorkloads) {
 	dest.NumWorkloads += delta.NumWorkloads
 	dest.NumNonZeroWorkloads += delta.NumNonZeroWorkloads
-	dest.NumMinCreatedWorkloads += delta.NumMinCreatedWorkloads
-	dest.NumAvailableWorkloads += delta.NumAvailableWorkloads
 	dest.MinAvailable += delta.MinAvailable
-	dest.TotalReplicas += delta.TotalReplicas
-	dest.AggregatedAvailableReplicas += delta.AggregatedAvailableReplicas
 	dest.EstimatedAvailableReplicas += delta.EstimatedAvailableReplicas
-	dest.SumAvailableProportionPpm += delta.SumAvailableProportionPpm
 	dest.SumLatencyMillis += delta.SumLatencyMillis
+
+	dest.Created.Add(delta.Created)
+	dest.Available.Add(delta.Available)
+	dest.Ready.Add(delta.Ready)
+	dest.Scheduled.Add(delta.Scheduled)
+	dest.Running.Add(delta.Running)
 }
 
 func (dest *MonitorWorkloads) Subtract(delta MonitorWorkloads) {
 	dest.NumWorkloads -= delta.NumWorkloads
 	dest.NumNonZeroWorkloads -= delta.NumNonZeroWorkloads
-	dest.NumMinCreatedWorkloads -= delta.NumMinCreatedWorkloads
-	dest.NumAvailableWorkloads -= delta.NumAvailableWorkloads
 	dest.MinAvailable -= delta.MinAvailable
-	dest.TotalReplicas -= delta.TotalReplicas
-	dest.AggregatedAvailableReplicas -= delta.AggregatedAvailableReplicas
 	dest.EstimatedAvailableReplicas -= delta.EstimatedAvailableReplicas
-	dest.SumAvailableProportionPpm -= delta.SumAvailableProportionPpm
 	dest.SumLatencyMillis -= delta.SumLatencyMillis
+
+	dest.Created.Subtract(delta.Created)
+	dest.Available.Subtract(delta.Available)
+	dest.Ready.Subtract(delta.Ready)
+	dest.Scheduled.Subtract(delta.Scheduled)
+	dest.Running.Subtract(delta.Running)
+}
+
+func (dest *StatusCount) Add(delta StatusCount) {
+	dest.MeetsMinAvailable += delta.MeetsMinAvailable
+	dest.AggregatedReplicas += delta.AggregatedReplicas
+	dest.SumProportionPpm += delta.SumProportionPpm
+}
+
+func (dest *StatusCount) Subtract(delta StatusCount) {
+	dest.MeetsMinAvailable -= delta.MeetsMinAvailable
+	dest.AggregatedReplicas -= delta.AggregatedReplicas
+	dest.SumProportionPpm -= delta.SumProportionPpm
 }

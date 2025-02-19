@@ -182,13 +182,8 @@ build-image:
 
 # Generate all files that have to be committed on Git.
 generate:
-    WAIT
-        BUILD +crd-gen
-        BUILD +code-generator
-    END
-    WAIT
-        BUILD +fmt
-    END
+    BUILD +crd-gen
+    BUILD +code-generator
 
 # Build all artifacts into the output directory.
 build:
