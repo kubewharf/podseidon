@@ -24,6 +24,8 @@ import (
 	"github.com/kubewharf/podseidon/generator/resource"
 )
 
+const ProportionPpmUnits = 1000000
+
 var Provide = component.RequireDeps(
 	component.RequireDep(ProvideLogging()),
 	component.RequireDep(ProvideMetrics()),

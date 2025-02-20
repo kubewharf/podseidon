@@ -209,7 +209,7 @@ func appendCountFields(fields *[]metrics.AnyField[MonitorWorkloads], name string
 			},
 		),
 		metrics.NewField(
-			fmt.Sprintf("current_aggregated_%s_workloads", name),
+			fmt.Sprintf("current_aggregated_%s_pods", name),
 			fmt.Sprintf("Current aggregated sum of %s replicas in workloads managed by this generator.", name),
 			metrics.Int64Gauge(),
 			func(status MonitorWorkloads) int64 { return field(status).AggregatedReplicas },
@@ -223,14 +223,16 @@ func appendCountFields(fields *[]metrics.AnyField[MonitorWorkloads], name string
 			},
 		),
 		metrics.NewField(
-			fmt.Sprintf("sum_%s_proportion_ppm", name),
+			fmt.Sprintf("sum_%s_proportion", name),
 			fmt.Sprintf(
 				"Sum of the proportion of %s replicas, saturated at 1 for each non-zero workload, "+
 					"rounded to nearest ppm (parts-per-million).",
 				name,
 			),
-			metrics.Int64Gauge(),
-			func(status MonitorWorkloads) int64 { return field(status).SumProportionPpm },
+			metrics.FloatGauge(),
+			func(status MonitorWorkloads) float64 {
+				return float64(field(status).SumProportionPpm) / float64(ProportionPpmUnits)
+			},
 		),
 		metrics.NewField(
 			fmt.Sprintf("avg_%s_proportion_ppm", name),
@@ -241,7 +243,7 @@ func appendCountFields(fields *[]metrics.AnyField[MonitorWorkloads], name string
 			),
 			metrics.FloatGauge(),
 			func(status MonitorWorkloads) float64 {
-				return float64(field(status).SumProportionPpm) / float64(status.NumNonZeroWorkloads)
+				return float64(field(status).SumProportionPpm) / float64(status.NumNonZeroWorkloads) / float64(ProportionPpmUnits)
 			},
 		),
 	)

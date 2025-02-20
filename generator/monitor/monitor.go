@@ -36,7 +36,7 @@ import (
 	"github.com/kubewharf/podseidon/generator/observer"
 )
 
-const ProportionPpmUnits = 1000000
+const ProportionPpmUnits = observer.ProportionPpmUnits
 
 var New = component.Declare[Args, Options, Deps, State, util.Empty](
 	func(Args) string { return "generator-monitor" },
