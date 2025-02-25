@@ -86,7 +86,9 @@ type EnqueueError struct {
 
 type Aggregated struct {
 	NumPods           int
-	TotalReplicas     int32
+	ReadyReplicas     int32
+	ScheduledReplicas int32
+	RunningReplicas   int32
 	AvailableReplicas int32
 }
 

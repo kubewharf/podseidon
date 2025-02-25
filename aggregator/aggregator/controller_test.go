@@ -120,6 +120,11 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 				IsAggregateOnly: true,
 				ReadyFor:        optional.Some(time.Second * 5),
 			}: 3,
+			{
+				IsDeleted:       true,
+				IsAggregateOnly: true,
+				ReadyFor:        optional.Some(time.Second * 5),
+			}: 2,
 		},
 		ExpectInitial: ExpectState{
 			ErrTag: optional.None[string](),
