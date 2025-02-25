@@ -36,6 +36,7 @@ tls-bundle:
 {{include "podseidon.args.logging.yaml" .}}
 {{include "podseidon.args.debug.yaml" .}}
 {{dict
+    "component" .component
     "config" .main.Values.webhook.coreCluster
     "volumeName" (printf "%s-webhook-core-cluster" .main.Release.Name)
     "argPrefix" "core"

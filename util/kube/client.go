@@ -79,8 +79,9 @@ var NewClient = component.Declare(
 				[]string{},
 				"comma-separated user groups to impersonate as",
 			),
-			qps:   fs.Float64("qps", float64(rest.DefaultQPS), "client QPS (for each clientset)"),
-			burst: fs.Int("burst", rest.DefaultBurst, "client burst (for each clientset)"),
+			qps:       fs.Float64("qps", float64(rest.DefaultQPS), "client QPS (for each clientset)"),
+			burst:     fs.Int("burst", rest.DefaultBurst, "client burst (for each clientset)"),
+			userAgent: fs.String("user-agent", "podseidon", "user agent for the kube client"),
 		}
 	},
 	func(_ ClientArgs, requests *component.DepRequests) ClientDeps {
@@ -111,6 +112,8 @@ var NewClient = component.Declare(
 
 		// Accept protobuf for better pod list performance
 		restConfig.AcceptContentTypes = "application/vnd.kubernetes.protobuf,application/json"
+
+		rest.AddUserAgent(restConfig, *options.userAgent)
 
 		kubeClientSet, err := kubernetes.NewForConfig(restConfig)
 		if err != nil {
@@ -163,6 +166,8 @@ type ClientOptions struct {
 
 	qps   *float64
 	burst *int
+
+	userAgent *string
 }
 
 type ClientDeps struct{}
