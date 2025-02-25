@@ -56,7 +56,9 @@ func NewLoggingObserver() Observer {
 			klog.FromContext(ctx).V(4).WithCallDepth(1).Info(
 				"Updated PodProtector aggregation status",
 				"numPods", arg.NumPods,
-				"totalReplicas", arg.TotalReplicas,
+				"readyReplicas", arg.ReadyReplicas,
+				"scheduledReplicas", arg.ScheduledReplicas,
+				"runningReplicas", arg.RunningReplicas,
 				"availableReplicas", arg.AvailableReplicas,
 			)
 		},

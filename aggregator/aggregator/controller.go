@@ -603,7 +603,7 @@ func findRelevantPods(caches *Caches, ppr *podseidonv1a1.PodProtector) ([]*corev
 			return errors.TagWrapf("PodListerGet", err, "get pod from lister")
 		}
 
-		if pod != nil {
+		if pod != nil && pod.DeletionTimestamp.IsZero() {
 			// Possible race condition: store is updated but event handler is not called yet to untrack the pod
 			relevantPods = append(relevantPods, pod)
 		}
@@ -630,11 +630,8 @@ func aggregateStatus(
 		return errors.TagErrorf("TooManyRelevantPods", "more than 2^31 pods")
 	}
 
-	totalReplicasInt := util.CountSlice(relevantPods, func(pod *corev1.Pod) bool {
-		return pod.DeletionTimestamp.IsZero()
-	})
-	// #nosec G115 -- totalReplicasInt <= len(relevantPods) <= MaxInt32
-	totalReplicas := int32(totalReplicasInt)
+	// #nosec G115 -- len(relevantPods) <= MaxInt32 checked above
+	totalReplicas := int32(len(relevantPods))
 
 	haschange.Assign(&target.TotalReplicas, totalReplicas, changed)
 
@@ -668,7 +665,9 @@ func aggregateStatus(
 
 	obs.Aggregated(ctx, observer.Aggregated{
 		NumPods:           len(relevantPods),
-		TotalReplicas:     totalReplicas,
+		ReadyReplicas:     readyReplicas,
+		ScheduledReplicas: scheduledReplicas,
+		RunningReplicas:   runningReplicas,
 		AvailableReplicas: availableReplicas,
 	})
 
