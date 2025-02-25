@@ -43,11 +43,13 @@
 {{include "podseidon.args.logging.yaml" .}}
 {{include "podseidon.args.debug.yaml" .}}
 {{dict
+    "component" .component
     "config" .main.Values.aggregator.coreCluster
     "volumeName" (printf "%s-aggregator-core-cluster" .main.Release.Name)
     "argPrefix" "core"
   | deepCopy | merge (deepCopy .) | include "podseidon.kubeconfig.args.yaml"}}
 {{dict
+    "component" .component
     "config" .main.Values.aggregator.workerCluster
     "volumeName" (printf "%s-aggregator-worker-cluster" .main.Release.Name)
     "argPrefix" "worker"
