@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/utils/clock"
 
@@ -82,11 +81,6 @@ var NewController = component.Declare(
 				ClusterName: constants.CoreClusterName,
 			})),
 			elector: component.DepPtr(requests, kube.NewElector(constants.GeneratorElectorArgs)),
-			nativeInformers: component.DepPtr(requests, kube.NewInformers(kube.NativeInformers(
-				constants.CoreClusterName,
-				constants.LeaderPhase,
-				optional.Some(constants.GeneratorElectorArgs),
-			))),
 			podseidonInformers: component.DepPtr(requests, kube.NewInformers(kube.PodseidonInformers(
 				constants.CoreClusterName,
 				constants.LeaderPhase,
@@ -103,10 +97,7 @@ var NewController = component.Declare(
 	func(_ context.Context, _ ControllerArgs, _ ControllerOptions, deps ControllerDeps) (*ControllerState, error) {
 		queue := deps.worker.Get()
 
-		pprInformer := deps.podseidonInformers.Get().
-			Podseidon().
-			V1alpha1().
-			PodProtectors()
+		pprInformer := deps.podseidonInformers.Get().Factory.Podseidon().V1alpha1().PodProtectors()
 
 		if err := pprInformer.Informer().AddIndexers(cache.Indexers{
 			GroupKindNamespaceNameIndexName: GroupKindNamespaceNameIndexFunc,
@@ -173,8 +164,7 @@ type ControllerOptions struct{}
 type ControllerDeps struct {
 	cluster            component.Dep[*kube.Client]
 	elector            component.Dep[*kube.Elector]
-	nativeInformers    component.Dep[kubeinformers.SharedInformerFactory]
-	podseidonInformers component.Dep[podseidoninformers.SharedInformerFactory]
+	podseidonInformers component.Dep[kube.Informers[podseidoninformers.SharedInformerFactory]]
 	observer           component.Dep[observer.Observer]
 	worker             component.Dep[worker.Api[QueueKey]]
 

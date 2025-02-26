@@ -63,7 +63,7 @@ var New = component.Declare[Args, Options, Deps, State, util.Empty](
 		}
 
 		if *options.Enable {
-			pprInformer := deps.podseidonInformers.Get().Podseidon().V1alpha1().PodProtectors()
+			pprInformer := deps.podseidonInformers.Get().Factory.Podseidon().V1alpha1().PodProtectors()
 			_, err := pprInformer.Informer().AddEventHandler(kube.GenericEventHandlerWithStaleState(
 				func(ppr *podseidonv1a1.PodProtector, stillPresent bool) {
 					nsName := types.NamespacedName{Namespace: ppr.Namespace, Name: ppr.Name}
@@ -87,7 +87,9 @@ var New = component.Declare[Args, Options, Deps, State, util.Empty](
 		Start: func(ctx context.Context, _ *Args, options *Options, deps *Deps, state *State) error {
 			if *options.Enable {
 				go func() {
-					deps.podseidonInformers.Get().WaitForCacheSync(ctx.Done())
+					informers := deps.podseidonInformers.Get()
+					<-informers.Started
+					informers.Factory.WaitForCacheSync(ctx.Done())
 
 					if ctx.Err() == nil {
 						deps.observer.Get().MonitorWorkloads(ctx, util.Empty{}, func() observer.MonitorWorkloads {
@@ -116,7 +118,7 @@ type Options struct {
 
 type Deps struct {
 	observer           component.Dep[observer.Observer]
-	podseidonInformers component.Dep[podseidoninformers.SharedInformerFactory]
+	podseidonInformers component.Dep[kube.Informers[podseidoninformers.SharedInformerFactory]]
 }
 
 type State struct {
