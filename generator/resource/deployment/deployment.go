@@ -84,7 +84,7 @@ var New = component.Declare(
 			options:  &data.Options,
 			observer: data.Deps.observer.Get(),
 			cluster:  data.Deps.client.Get(),
-			informer: data.Deps.informers.Get().Apps().V1().Deployments(),
+			informer: data.Deps.informers.Get().Factory.Apps().V1().Deployments(),
 		}
 	},
 )
@@ -97,7 +97,7 @@ type Options struct {
 type Deps struct {
 	observer  component.Dep[observer.Observer]
 	client    component.Dep[*kube.Client]
-	informers component.Dep[kubeinformers.SharedInformerFactory]
+	informers component.Dep[kube.Informers[kubeinformers.SharedInformerFactory]]
 }
 
 type State struct{}

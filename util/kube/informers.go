@@ -33,7 +33,7 @@ import (
 //revive:disable-next-line:function-length
 func NewInformers[ClientT any, FactoryT InformerFactory](
 	args InformersArgs[ClientT, FactoryT],
-) component.Declared[FactoryT] {
+) component.Declared[Informers[FactoryT]] {
 	return component.Declare(
 		func(args InformersArgs[ClientT, FactoryT]) string {
 			return fmt.Sprintf(
@@ -78,6 +78,7 @@ func NewInformers[ClientT any, FactoryT InformerFactory](
 
 			return &InformersState[FactoryT]{
 				factory: factory,
+				started: make(chan util.Empty),
 			}, nil
 		},
 		component.Lifecycle[InformersArgs[ClientT, FactoryT], InformersOptions, InformersDeps[ClientT], InformersState[FactoryT]]{
@@ -101,6 +102,7 @@ func NewInformers[ClientT any, FactoryT InformerFactory](
 					}
 
 					state.factory.Start(ctx.Done())
+					close(state.started)
 				}()
 
 				return nil
@@ -118,8 +120,13 @@ func NewInformers[ClientT any, FactoryT InformerFactory](
 			},
 			HealthChecks: nil, // There is no way to check HasSynced on all informers; do it in the user worker instead.
 		},
-		func(d *component.Data[InformersArgs[ClientT, FactoryT], InformersOptions, InformersDeps[ClientT], InformersState[FactoryT]]) FactoryT {
-			return d.State.factory
+		func(
+			d *component.Data[InformersArgs[ClientT, FactoryT], InformersOptions, InformersDeps[ClientT], InformersState[FactoryT]],
+		) Informers[FactoryT] {
+			return Informers[FactoryT]{
+				Factory: d.State.factory,
+				Started: d.State.started,
+			}
 		},
 	)(
 		args,
@@ -189,6 +196,14 @@ type InformersDeps[ClientT any] struct {
 
 type InformersState[FactoryT InformerFactory] struct {
 	factory FactoryT
+	started chan util.Empty
+}
+
+type Informers[FactoryT InformerFactory] struct {
+	Factory FactoryT
+	// A channel closed when the informer factory is started.
+	// Factory.WaitForCacheSync always immediately returns an empty map before the informer factory starts.
+	Started <-chan util.Empty
 }
 
 type InformerFactory interface {
