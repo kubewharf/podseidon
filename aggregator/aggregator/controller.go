@@ -488,7 +488,7 @@ func tryReconcile(
 	if err != nil {
 		return observer.EndReconcile{
 			Err:       errors.TagWrapf("PprListerGet", err, "get PodProtector from lister"),
-			HasChange: false,
+			HasChange: haschange.New[observer.StatusChangeCause](),
 			Action:    "",
 		}
 	}
@@ -498,7 +498,7 @@ func tryReconcile(
 		// nothing to process
 		return observer.EndReconcile{
 			Err:       nil,
-			HasChange: false,
+			HasChange: haschange.New[observer.StatusChangeCause](),
 			Action:    observer.ReconcileActionNoPpr,
 		}
 	}
@@ -507,7 +507,7 @@ func tryReconcile(
 		// skipped due to selector
 		return observer.EndReconcile{
 			Err:       nil,
-			HasChange: false,
+			HasChange: haschange.New[observer.StatusChangeCause](),
 			Action:    observer.ReconcileActionSelectorMismatch,
 		}
 	}
@@ -516,7 +516,11 @@ func tryReconcile(
 
 	relevantPods, err := findRelevantPods(caches, ppr)
 	if err != nil {
-		return observer.EndReconcile{Err: err, HasChange: false, Action: ""}
+		return observer.EndReconcile{
+			Err:       err,
+			HasChange: haschange.New[observer.StatusChangeCause](),
+			Action:    "",
+		}
 	}
 
 	lastEventTime, hasLastEventTime := caches.informerSyncReader().Get()
@@ -526,7 +530,7 @@ func tryReconcile(
 				"NoInformerSyncTime",
 				"did not receive prior informer sync time",
 			),
-			HasChange: false,
+			HasChange: haschange.New[observer.StatusChangeCause](),
 			Action:    "",
 		}
 	}
@@ -540,15 +544,19 @@ func tryReconcile(
 	)
 
 	requeue := optional.None[time.Duration]()
-	hasChange := haschange.Changed(false)
+	hasChange := haschange.New[observer.StatusChangeCause]()
 
 	if err := aggregateStatus(ctx, options.clk, obs, relevantPods, ppr, &requeue, &status.Aggregation, &hasChange); err != nil {
-		return observer.EndReconcile{Err: err, HasChange: false, Action: ""}
+		return observer.EndReconcile{
+			Err:       err,
+			HasChange: haschange.New[observer.StatusChangeCause](),
+			Action:    "",
+		}
 	}
 
 	updateLastEventTime(caches, queueItem, status, &hasChange, lastEventTime)
 
-	if hasChange {
+	if hasChange.HasChanged() {
 		status.Aggregation.LastEventTime.Time = lastEventTime
 	}
 
@@ -556,7 +564,7 @@ func tryReconcile(
 		queue.EnqueueDelayed(queueItem, requeue)
 	}
 
-	if hasChange {
+	if hasChange.HasChanged() {
 		computedConfig := options.defaultConfig.Compute(optional.Some(ppr.Spec.AdmissionHistoryConfig))
 		pprutil.Summarize(computedConfig, ppr)
 
@@ -569,7 +577,7 @@ func tryReconcile(
 					err,
 					"apiserver error while updating aggregation status",
 				),
-				HasChange: false,
+				HasChange: hasChange,
 				Action:    "",
 			}
 		}
@@ -624,7 +632,7 @@ func aggregateStatus(
 	ppr *podseidonv1a1.PodProtector,
 	requeue *optional.Optional[time.Duration],
 	target *podseidonv1a1.PodProtectorAggregation,
-	changed *haschange.Changed,
+	changed *haschange.Changed[observer.StatusChangeCause],
 ) error {
 	if len(relevantPods) > math.MaxInt32 {
 		return errors.TagErrorf("TooManyRelevantPods", "more than 2^31 pods")
@@ -633,7 +641,7 @@ func aggregateStatus(
 	// #nosec G115 -- len(relevantPods) <= MaxInt32 checked above
 	totalReplicas := int32(len(relevantPods))
 
-	haschange.Assign(&target.TotalReplicas, totalReplicas, changed)
+	haschange.Assign(changed, &target.TotalReplicas, totalReplicas, observer.StatusChangeCauseCreated)
 
 	readyReplicas := int32(0)
 	scheduledReplicas := int32(0)
@@ -658,10 +666,10 @@ func aggregateStatus(
 		}
 	}
 
-	haschange.Assign(&target.ReadyReplicas, readyReplicas, changed)
-	haschange.Assign(&target.ScheduledReplicas, scheduledReplicas, changed)
-	haschange.Assign(&target.RunningReplicas, runningReplicas, changed)
-	haschange.Assign(&target.AvailableReplicas, availableReplicas, changed)
+	haschange.Assign(changed, &target.ReadyReplicas, readyReplicas, observer.StatusChangeCauseReady)
+	haschange.Assign(changed, &target.ScheduledReplicas, scheduledReplicas, observer.StatusChangeCauseScheduled)
+	haschange.Assign(changed, &target.RunningReplicas, runningReplicas, observer.StatusChangeCauseRunning)
+	haschange.Assign(changed, &target.AvailableReplicas, availableReplicas, observer.StatusChangeCauseAvailable)
 
 	obs.Aggregated(ctx, observer.Aggregated{
 		NumPods:           len(relevantPods),
@@ -732,10 +740,10 @@ func updateLastEventTime(
 	caches *Caches,
 	queueItem pprutil.PodProtectorKey,
 	outputStatus *podseidonv1a1.PodProtectorCellStatus,
-	outputChanged *haschange.Changed,
+	outputChanged *haschange.Changed[observer.StatusChangeCause],
 	lastEventTime time.Time,
 ) {
-	changed := haschange.Changed(false)
+	changed := false
 	newBuckets := []podseidonv1a1.PodProtectorAdmissionBucket{}
 
 	for _, bucket := range outputStatus.History.Buckets {
@@ -779,7 +787,8 @@ func updateLastEventTime(
 
 	if changed {
 		outputStatus.History.Buckets = newBuckets
-		*outputChanged = true
+
+		outputChanged.Add(observer.StatusChangeCauseHistoryBucketAggregated)
 	}
 
 	if len(newBuckets) > 0 {

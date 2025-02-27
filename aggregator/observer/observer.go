@@ -58,8 +58,38 @@ type StartReconcile struct {
 
 type EndReconcile struct {
 	Err       error
-	HasChange haschange.Changed
+	HasChange haschange.Changed[StatusChangeCause]
 	Action    ReconcileAction
+}
+
+type StatusChangeCause uint32
+
+const (
+	StatusChangeCauseAvailable = StatusChangeCause(1 << iota)
+	StatusChangeCauseReady
+	StatusChangeCauseRunning
+	StatusChangeCauseScheduled
+	StatusChangeCauseCreated
+	StatusChangeCauseHistoryBucketAggregated
+)
+
+func (cause StatusChangeCause) BitToString() string {
+	switch cause {
+	case StatusChangeCauseAvailable:
+		return "Available"
+	case StatusChangeCauseReady:
+		return "Ready"
+	case StatusChangeCauseRunning:
+		return "Running"
+	case StatusChangeCauseScheduled:
+		return "Scheduled"
+	case StatusChangeCauseCreated:
+		return "Created"
+	case StatusChangeCauseHistoryBucketAggregated:
+		return "HistoryBucketAggregated"
+	default:
+		panic("receiver is not a power of 2")
+	}
 }
 
 type ReconcileAction string

@@ -38,10 +38,15 @@ func NewLoggingObserver() Observer {
 		},
 		EndReconcile: func(ctx context.Context, arg EndReconcile) {
 			logger := klog.FromContext(ctx)
-			logger.V(4).WithCallDepth(1).WithValues(
-				"hasChange", arg.HasChange,
+			logger = logger.V(4).WithCallDepth(1).WithValues(
+				"hasChange", arg.HasChange.String(),
 				"action", arg.Action,
-			).Info("reconcile complete")
+			)
+			if arg.Err != nil {
+				logger.Error(arg.Err, "reconcile error")
+			} else {
+				logger.Info("reconcile complete")
+			}
 		},
 		StartEnqueue: func(ctx context.Context, _ StartEnqueue) (context.Context, context.CancelFunc) {
 			return ctx, util.NoOp

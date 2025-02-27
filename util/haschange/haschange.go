@@ -14,13 +14,64 @@
 
 package haschange
 
+import "golang.org/x/exp/constraints"
+
+// A bitmask of change causes.
+//
+// Each bit in the bitmask denotes different causes for changing.
+type Cause interface {
+	constraints.Integer
+
+	// Returns a string describing the cause.
+	//
+	// This method must only be called when the receiver is a power of 2.
+	BitToString() string
+}
+
 // Tracks whether an object has been changed during reconciliation.
-type Changed bool
+type Changed[CauseT Cause] struct {
+	mask CauseT
+}
+
+func New[CauseT Cause]() Changed[CauseT] {
+	return Changed[CauseT]{mask: 0}
+}
+
+func (changed *Changed[CauseT]) HasChanged() bool {
+	return changed.mask != 0
+}
+
+// Updates `changed` to include all causes from `addend`.
+func (changed *Changed[CauseT]) Add(addend CauseT) {
+	changed.mask |= addend
+}
 
 // Assigns a new value to dst, updating `changed` if a change is detected using shallow equality `T == T`.
-func Assign[T comparable](dst *T, src T, changed *Changed) {
+func Assign[CauseT Cause, T comparable](changed *Changed[CauseT], dst *T, src T, cause CauseT) {
 	if *dst != src {
 		*dst = src
-		*changed = true
+		changed.mask |= cause
 	}
+}
+
+func (changed *Changed[CauseT]) String() string {
+	if changed.mask == 0 {
+		return "nil"
+	}
+
+	output := ""
+	maskIter := changed.mask
+
+	for maskIter > 0 {
+		bit := maskIter & -maskIter
+		maskIter &= ^bit
+
+		if output != "" {
+			output += "+"
+		}
+
+		output += bit.BitToString()
+	}
+
+	return output
 }
