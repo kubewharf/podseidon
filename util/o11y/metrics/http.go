@@ -42,8 +42,8 @@ var NewHttp = utilhttp.DeclareServer(
 	},
 	func(_ HttpArgs, _ HttpOptions, deps httpDeps, mux *http.ServeMux) (*httpState, error) {
 		//nolint:exhaustruct
-		mux.Handle("/", promhttp.HandlerFor(deps.comp.Get().Registry, promhttp.HandlerOpts{
-			Registry: deps.comp.Get().Registry,
+		mux.Handle("/", promhttp.HandlerFor(deps.comp.Get().PrometheusRegistry, promhttp.HandlerOpts{
+			Registry: deps.comp.Get().PrometheusRegistry,
 		}))
 
 		return &httpState{}, nil

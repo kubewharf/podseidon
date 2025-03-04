@@ -50,7 +50,7 @@ func newRegistry() component.Declared[*registryState] {
 				collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 			)
 
-			heartbeatHandle := Register(
+			heartbeatHandle := registerWith(
 				registry,
 				"heartbeat",
 				"Number of seconds since process startup",
@@ -59,14 +59,20 @@ func newRegistry() component.Declared[*registryState] {
 			)
 
 			return &registryState{
-				Registry:        registry,
-				heartbeatHandle: heartbeatHandle,
-				startupTime:     time.Now(),
-				sampleFrequency: *options.sampleFrequency,
+				PrometheusRegistry: registry,
+				heartbeatHandle:    heartbeatHandle,
+				flushables:         nil,
+				started:            false,
+				startupTime:        time.Now(),
+				sampleFrequency:    *options.sampleFrequency,
 			}, nil
 		},
 		component.Lifecycle[RegistryArgs, registryOptions, util.Empty, registryState]{
-			Start: func(ctx context.Context, _ *RegistryArgs, options *registryOptions, _ *struct{}, state *registryState) error {
+			Start: func(ctx context.Context, _ *RegistryArgs, options *registryOptions, _ *util.Empty, state *registryState) error {
+				for _, flushable := range state.flushables {
+					flushable(ctx)
+				}
+
 				go wait.UntilWithContext(ctx, func(_ context.Context) {
 					state.heartbeatHandle.Emit(
 						time.Since(state.startupTime).Seconds(),
@@ -94,9 +100,12 @@ type registryOptions struct {
 }
 
 type registryState struct {
-	Registry        *prometheus.Registry
-	heartbeatHandle Handle[util.Empty, float64]
+	PrometheusRegistry *prometheus.Registry
+	heartbeatHandle    Handle[util.Empty, float64]
 
+	flushables []func(context.Context)
+
+	started         bool
 	startupTime     time.Time
 	sampleFrequency time.Duration
 }
@@ -105,8 +114,14 @@ type ObserverDeps struct {
 	reg component.Dep[*registryState]
 }
 
-func (deps ObserverDeps) Registry() *prometheus.Registry {
-	return deps.reg.Get().Registry
+func (deps ObserverDeps) Registry() Registry {
+	state := deps.reg.Get()
+
+	return Registry{
+		Prometheus: state.PrometheusRegistry,
+		flushables: &state.flushables,
+		started:    state.started,
+	}
 }
 
 func Repeating[V any](
@@ -124,4 +139,10 @@ func MakeObserverDeps(requests *component.DepRequests) ObserverDeps {
 	return ObserverDeps{
 		reg: component.DepPtr(requests, newRegistry()),
 	}
+}
+
+type Registry struct {
+	Prometheus *prometheus.Registry
+	flushables *[]func(context.Context)
+	started    bool
 }

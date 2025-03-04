@@ -16,44 +16,59 @@ package observer
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/kubewharf/podseidon/util/component"
 	"github.com/kubewharf/podseidon/util/errors"
 	"github.com/kubewharf/podseidon/util/o11y"
 	"github.com/kubewharf/podseidon/util/o11y/metrics"
+	"github.com/kubewharf/podseidon/util/o11y/metrics/unique"
 	"github.com/kubewharf/podseidon/util/util"
 )
+
+//nolint:mnd
+var UniqueRejectRateWindows = map[string]time.Duration{
+	"30s": time.Second * 30,
+	"5m":  time.Minute * 5,
+	"15m": time.Minute * 15,
+	"1h":  time.Hour,
+	"1d":  time.Hour * 24,
+}
 
 func ProvideMetrics() component.Declared[Observer] {
 	return o11y.Provide(
 		metrics.MakeObserverDeps,
 		func(deps metrics.ObserverDeps) Observer {
-			type webhookRequestTags struct {
+			type requestTags struct {
 				Cell   string
 				Status string
 			}
 
-			type webhookHttpErrorTags struct {
+			type httpErrorTags struct {
 				Cell  string
 				Error string
 			}
 
-			type webhookCtxKey struct{}
-
-			type webhookCtxValue struct {
-				cell      string
-				startTime time.Time
-			}
-
 			type (
-				webhookPodInPprCtxKey   struct{}
-				webhookPodInPprCtxValue struct {
+				requestCtxKey   struct{}
+				requestCtxValue struct {
+					cell      string
 					startTime time.Time
 				}
 			)
 
-			type webhookPodInPprTags struct {
+			type (
+				podInPprCtxKey   struct{}
+				podInPprCtxValue struct {
+					startTime time.Time
+					namespace string
+					pprName   string
+					podName   string
+				}
+			)
+
+			type podInPprTags struct {
 				Rejected bool
 			}
 
@@ -62,7 +77,7 @@ func ProvideMetrics() component.Declared[Observer] {
 				"webhook_request",
 				"Response latency of webhook server.",
 				metrics.FunctionDurationHistogram(),
-				metrics.NewReflectTags[webhookRequestTags](),
+				metrics.NewReflectTags[requestTags](),
 			)
 
 			httpErrorHandle := metrics.Register(
@@ -70,7 +85,7 @@ func ProvideMetrics() component.Declared[Observer] {
 				"webhook_http_error",
 				"Number of error events during webhook processing.",
 				metrics.IntCounter(),
-				metrics.NewReflectTags[webhookHttpErrorTags](),
+				metrics.NewReflectTags[httpErrorTags](),
 			)
 
 			podInPprHandle := metrics.Register(
@@ -78,8 +93,39 @@ func ProvideMetrics() component.Declared[Observer] {
 				"webhook_handle_pod_in_ppr",
 				"Duration of handling each matched PodProtector for a pod admission event.",
 				metrics.FunctionDurationHistogram(),
-				metrics.NewReflectTags[webhookPodInPprTags](),
+				metrics.NewReflectTags[podInPprTags](),
 			)
+
+			handleUniquePprHandles := make([]metrics.Handle[podInPprTags, string], 0, len(UniqueRejectRateWindows))
+			handleUniquePodHandles := make([]metrics.Handle[podInPprTags, string], 0, len(UniqueRejectRateWindows))
+
+			for freqStr, freq := range UniqueRejectRateWindows {
+				handleUniquePprHandles = append(handleUniquePprHandles, metrics.RegisterFlushable(
+					deps.Registry(),
+					fmt.Sprintf("webhook_handle_unique_ppr_%s", freqStr),
+					fmt.Sprintf(
+						"Number of unique PodProtectors handled every %s. Value is always 0 in the first %s after process restart.",
+						freqStr,
+						freqStr,
+					),
+					unique.NewCounterVec(),
+					metrics.NewReflectTags[podInPprTags](),
+					freq,
+				))
+
+				handleUniquePodHandles = append(handleUniquePodHandles, metrics.RegisterFlushable(
+					deps.Registry(),
+					fmt.Sprintf("webhook_handle_unique_pod_%s", freqStr),
+					fmt.Sprintf(
+						"Number of unique pods handled every %s. Value is always 0 in the first %s after process restart.",
+						freqStr,
+						freqStr,
+					),
+					unique.NewCounterVec(),
+					metrics.NewReflectTags[podInPprTags](),
+					freq,
+				))
+			}
 
 			return Observer{
 				HttpRequest: func(ctx context.Context, arg Request) (context.Context, context.CancelFunc) {
@@ -87,40 +133,53 @@ func ProvideMetrics() component.Declared[Observer] {
 
 					return context.WithValue(
 						ctx,
-						webhookCtxKey{},
-						webhookCtxValue{cell: arg.Cell, startTime: startTime},
+						requestCtxKey{},
+						requestCtxValue{cell: arg.Cell, startTime: startTime},
 					), util.NoOp
 				},
 				HttpRequestComplete: func(ctx context.Context, arg RequestComplete) {
-					ctxValue := ctx.Value(webhookCtxKey{}).(webhookCtxValue)
+					ctxValue := ctx.Value(requestCtxKey{}).(requestCtxValue)
 					requestHandle.Emit(
 						time.Since(ctxValue.startTime),
-						webhookRequestTags{Cell: ctxValue.cell, Status: string(arg.Status)},
+						requestTags{Cell: ctxValue.cell, Status: string(arg.Status)},
 					)
 				},
 				HttpError: func(ctx context.Context, arg HttpError) {
-					value := ctx.Value(webhookCtxKey{}).(webhookCtxValue)
+					value := ctx.Value(requestCtxKey{}).(requestCtxValue)
 
-					httpErrorHandle.Emit(1, webhookHttpErrorTags{
+					httpErrorHandle.Emit(1, httpErrorTags{
 						Cell:  value.cell,
 						Error: errors.SerializeTags(arg.Err),
 					})
 				},
-				StartHandlePodInPpr: func(ctx context.Context, _ StartHandlePodInPpr) (context.Context, context.CancelFunc) {
+				StartHandlePodInPpr: func(ctx context.Context, arg StartHandlePodInPpr) (context.Context, context.CancelFunc) {
 					return context.WithValue(
 						ctx,
-						webhookPodInPprCtxKey{},
-						webhookPodInPprCtxValue{
+						podInPprCtxKey{},
+						podInPprCtxValue{
 							startTime: time.Now(),
+							namespace: arg.Namespace,
+							pprName:   arg.PprName,
+							podName:   arg.PodName,
 						},
 					), util.NoOp
 				},
 				EndHandlePodInPpr: func(ctx context.Context, arg EndHandlePodInPpr) {
-					ctxValue := ctx.Value(webhookPodInPprCtxKey{}).(webhookPodInPprCtxValue)
+					ctxValue := ctx.Value(podInPprCtxKey{}).(podInPprCtxValue)
 
-					podInPprHandle.Emit(time.Since(ctxValue.startTime), webhookPodInPprTags{
+					tags := podInPprTags{
 						Rejected: arg.Rejected,
-					})
+					}
+
+					podInPprHandle.Emit(time.Since(ctxValue.startTime), tags)
+
+					for _, handle := range handleUniquePprHandles {
+						handle.Emit(fmt.Sprintf("%s/%s", ctxValue.namespace, ctxValue.pprName), tags)
+					}
+
+					for _, handle := range handleUniquePodHandles {
+						handle.Emit(fmt.Sprintf("%s/%s", ctxValue.namespace, ctxValue.podName), tags)
+					}
 				},
 				StartExecuteRetry: func(ctx context.Context, _ StartExecuteRetry) (context.Context, context.CancelFunc) {
 					return ctx, util.NoOp

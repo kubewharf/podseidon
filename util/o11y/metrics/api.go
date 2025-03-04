@@ -15,17 +15,29 @@
 package metrics
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"time"
 	"unicode"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/kubewharf/podseidon/util/util"
 )
 
 func Register[Value any, Tags any](
+	registry Registry,
+	name string,
+	help string,
+	metricType Type[Value],
+	tagsDesc TagsDesc[Tags],
+) Handle[Tags, Value] {
+	return registerWith(registry.Prometheus, name, help, metricType, tagsDesc)
+}
+
+func registerWith[Value any, Tags any](
 	registry *prometheus.Registry,
 	name string,
 	help string,
@@ -38,6 +50,28 @@ func Register[Value any, Tags any](
 		metricType: metricType,
 		tagsDesc:   tagsDesc,
 	}
+}
+
+func RegisterFlushable[Value any, Tags any](
+	registry Registry,
+	name string,
+	help string,
+	metricType FlushableType[Value],
+	tagsDesc TagsDesc[Tags],
+	frequency time.Duration,
+) Handle[Tags, Value] {
+	*registry.flushables = append(*registry.flushables, func(ctx context.Context) {
+		go func() {
+			wait.UntilWithContext(
+				ctx, func(_ context.Context) { metricType.Flush() },
+				frequency,
+			)
+
+			metricType.Flush()
+		}()
+	})
+
+	return Register(registry, name, help, metricType.AsType(), tagsDesc)
 }
 
 type Handle[Tags any, Value any] struct {
@@ -68,6 +102,16 @@ func (handle TaggedHandle[Value]) Emit(value Value) {
 type Type[Value any] interface {
 	InitCollector(name string, help string, tagKeys []string) prometheus.Collector
 	Emitter[Value]
+}
+
+type Flushable interface {
+	Flush()
+}
+
+type FlushableType[Value any] interface {
+	// Do not extend Type[Value] directly to avoid accidentally passing into `Register.
+	AsType() Type[Value]
+	Flushable
 }
 
 type Emitter[Value any] interface {

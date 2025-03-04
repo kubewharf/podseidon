@@ -19,8 +19,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	podseidonv1a1 "github.com/kubewharf/podseidon/apis/v1alpha1"
 
 	"github.com/kubewharf/podseidon/util/component"
@@ -134,7 +132,7 @@ func ProvideMetrics() component.Declared[Observer] {
 	)
 }
 
-func makeMonitorWorkloadsHandle(registry *prometheus.Registry) metrics.Handle[util.Empty, MonitorWorkloads] {
+func makeMonitorWorkloadsHandle(registry metrics.Registry) metrics.Handle[util.Empty, MonitorWorkloads] {
 	fields := []metrics.AnyField[MonitorWorkloads]{
 		metrics.NewField(
 			"num_workloads",
