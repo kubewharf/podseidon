@@ -32,7 +32,7 @@ var NewComp = component.Declare(
 		}
 	},
 	func(_ context.Context, _ CompArgs, _ compOptions, deps compDeps) (*compState, error) {
-		RegisterForPrometheus(deps.prom.Registry())
+		RegisterForPrometheus(deps.prom.Registry().Prometheus)
 		return &compState{}, nil
 	},
 	component.Lifecycle[CompArgs, compOptions, compDeps, compState]{
