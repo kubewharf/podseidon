@@ -106,6 +106,16 @@ func DoUpdate[T runtime.Object](
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 }
 
+func getPprCell(ppr *podseidonv1a1.PodProtector, worker WorkerIndex) optional.Optional[podseidonv1a1.PodProtectorCellStatus] {
+	for _, cell := range ppr.Status.Cells {
+		if cell.CellId == worker.String() {
+			return optional.Some(cell)
+		}
+	}
+
+	return optional.None[podseidonv1a1.PodProtectorCellStatus]()
+}
+
 func MatchPprStatus(totalReplicas int32, aggregatedAvailable int32, estimatedAvailable int32,
 	workerTotalReplicas [2]int32, workerAvailableReplicas [2]int32,
 ) gomega.OmegaMatcher {
@@ -124,29 +134,25 @@ func MatchPprStatus(totalReplicas int32, aggregatedAvailable int32, estimatedAva
 		),
 		gomega.WithTransform(
 			func(ppr *podseidonv1a1.PodProtector) int32 {
-				return optional.GetSlice(ppr.Status.Cells, 0).GetOrZero().Aggregation.TotalReplicas
+				return getPprCell(ppr, 0).GetOrZero().Aggregation.TotalReplicas
 			},
 			gomega.Equal(workerTotalReplicas[0]),
 		),
 		gomega.WithTransform(
 			func(ppr *podseidonv1a1.PodProtector) int32 {
-				return optional.GetSlice(ppr.Status.Cells, 0).
-					GetOrZero().
-					Aggregation.AvailableReplicas
+				return getPprCell(ppr, 0).GetOrZero().Aggregation.AvailableReplicas
 			},
 			gomega.Equal(workerAvailableReplicas[0]),
 		),
 		gomega.WithTransform(
 			func(ppr *podseidonv1a1.PodProtector) int32 {
-				return optional.GetSlice(ppr.Status.Cells, 1).GetOrZero().Aggregation.TotalReplicas
+				return getPprCell(ppr, 1).GetOrZero().Aggregation.TotalReplicas
 			},
 			gomega.Equal(workerTotalReplicas[1]),
 		),
 		gomega.WithTransform(
 			func(ppr *podseidonv1a1.PodProtector) int32 {
-				return optional.GetSlice(ppr.Status.Cells, 1).
-					GetOrZero().
-					Aggregation.AvailableReplicas
+				return getPprCell(ppr, 1).GetOrZero().Aggregation.AvailableReplicas
 			},
 			gomega.Equal(workerAvailableReplicas[1]),
 		),

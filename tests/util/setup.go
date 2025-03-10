@@ -416,13 +416,17 @@ type (
 	PodIndex    int32
 )
 
+func (index WorkerIndex) String() string {
+	return fmt.Sprintf("worker-%d", index+1)
+}
+
 type PodId struct {
 	Worker WorkerIndex
 	Pod    PodIndex
 }
 
 func (id PodId) PodName() string {
-	return fmt.Sprintf("worker-%d-pod-%d", int32(id.Worker)+1, id.Pod)
+	return fmt.Sprintf("%s-pod-%d", id.Worker, id.Pod)
 }
 
 type PodCounts [2]PodIndex

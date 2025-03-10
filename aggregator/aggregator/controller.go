@@ -18,6 +18,7 @@ import (
 	"context"
 	"flag"
 	"math"
+	"math/rand/v2"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -76,6 +77,18 @@ var NewController = component.Declare(
 				0,
 				"pod informer relist frequency, enable if pod updates are infrequent",
 			),
+			aggRateJitter: [2]*float64{
+				fs.Float64(
+					"rate-jitter-low",
+					0.5,
+					"jitter aggregationRate with a uniformly distributed multiplier [jitter-low, jitter-high]",
+				),
+				fs.Float64(
+					"rate-jitter-high",
+					1.0,
+					"jitter aggregationRate with a uniformly distributed multiplier [jitter-low, jitter-high]",
+				),
+			},
 		}
 	},
 	func(args ControllerArgs, requests *component.DepRequests) ControllerDeps {
@@ -139,6 +152,7 @@ type ControllerOptions struct {
 	pprLabelSelector *labels.Selector
 	podLabelSelector *labels.Selector
 	podRelistPeriod  *time.Duration
+	aggRateJitter    [2]*float64
 }
 
 type ControllerDeps struct {
@@ -231,10 +245,17 @@ func initController(
 	queue.SetBeforeStart(deps.elector.Get().Await)
 
 	deps.pprInformer.Get().AddPostHandler(func(key pprutil.PodProtectorKey) {
-		queue.EnqueueDelayed(key, *deps.defaultConfig.Get().AggregationRate)
+		queue.EnqueueDelayed(key, jitterAggregationRate(options.aggRateJitter, *deps.defaultConfig.Get().AggregationRate))
 	})
 
 	return state, nil
+}
+
+func jitterAggregationRate(jitter [2]*float64, configValue time.Duration) time.Duration {
+	lerp := rand.Float64()
+	multiplier := *jitter[0] + (*jitter[1]-*jitter[0])*lerp
+
+	return time.Duration(float64(configValue) * multiplier)
 }
 
 //revive:disable-next-line:argument-limit // cannot reasonably reduce
@@ -305,6 +326,7 @@ func createPodInformer(
 		ctx:                ctx,
 		observer:           obs,
 		defaultConfig:      defaultConfig,
+		aggRateJitter:      options.aggRateJitter,
 		podIndex:           podIndex,
 		pprInformer:        pprInformer,
 		queue:              queue,
@@ -329,6 +351,7 @@ type podEventHandler struct {
 	observer observer.Observer
 
 	defaultConfig *defaultconfig.Options
+	aggRateJitter [2]*float64
 
 	podIndex    Sets
 	pprInformer pprutil.IndexedInformer
@@ -424,8 +447,7 @@ func (handler *podEventHandler) handle(ctx context.Context, obj any, stillPresen
 		}
 
 		computedConfig := handler.defaultConfig.Compute(pprConfig)
-
-		handler.queue.EnqueueDelayed(nsName, computedConfig.AggregationRate)
+		handler.queue.EnqueueDelayed(nsName, jitterAggregationRate(handler.aggRateJitter, computedConfig.AggregationRate))
 	}
 }
 

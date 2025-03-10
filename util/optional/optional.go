@@ -169,7 +169,7 @@ func FromPtr[T any](ptr *T) Optional[T] {
 
 // Returns `Some(slice[index])` if it exists, None otherwise.
 func GetSlice[T any](slice []T, index int) Optional[T] {
-	if index < len(slice) {
+	if index >= 0 && index < len(slice) {
 		return Some(slice[index])
 	}
 
