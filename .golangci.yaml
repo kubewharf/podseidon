@@ -166,7 +166,7 @@ linters-settings:
   mnd:
     ignored-numbers: ['0', '1', '2', '3', '4', '8', '16', '32', '64', '0.', '1.', '100.']
     ignored-functions:
-      - 'fs\.(Duration|Int[0-9]*)'
+      - 'fs\.(Duration|Int[0-9]*|Float32|Float64)'
       - 'utilflag\.(Uint[0-9]*|Int[0-9]*)'
       - 'metrics\.ExponentialIntHistogram'
   revive:
