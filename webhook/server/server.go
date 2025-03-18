@@ -62,20 +62,21 @@ var New = utilhttp.DeclareServer(
 	},
 	func(_ Args, reqs *component.DepRequests) Deps {
 		return Deps{
-			observer: o11y.Request[observer.Observer](reqs),
-			handler:  component.DepPtr(reqs, handler.New(handler.Args{})),
+			observer:     o11y.Request[observer.Observer](reqs),
+			handler:      component.DepPtr(reqs, handler.New(handler.Args{})),
+			cellResolver: component.DepPtr(reqs, RequestCellResolver()),
 		}
 	},
 	func(_ Args, options Options, deps Deps, mux *http.ServeMux) (*State, error) {
 		mux.HandleFunc(
-			fmt.Sprintf("POST %s/{cell}", *options.pathPrefix),
+			fmt.Sprintf("POST %s/{cell...}", *options.pathPrefix),
 			func(resp http.ResponseWriter, req *http.Request) {
-				cellId := req.PathValue("cell")
+				cellPath := req.PathValue("cell")
 
 				ctx, cancelFunc := deps.observer.Get().HttpRequest(
 					req.Context(),
 					observer.Request{
-						Cell:       cellId,
+						CellPath:   cellPath,
 						RemoteAddr: req.RemoteAddr,
 					},
 				)
@@ -105,7 +106,7 @@ var New = utilhttp.DeclareServer(
 					deps.observer.Get().HttpError(ctx, observer.HttpError{Err: err})
 
 					resp.WriteHeader(http.StatusBadRequest)
-					if _, err = resp.Write([]byte(fmt.Sprintf("error parsing JSON body: %v", err))); err != nil {
+					if _, err = resp.Write(fmt.Appendf(nil, "error parsing JSON body: %v", err)); err != nil {
 						deps.observer.Get().HttpError(
 							ctx,
 							observer.HttpError{Err: err},
@@ -114,6 +115,34 @@ var New = utilhttp.DeclareServer(
 
 					return
 				}
+
+				cellId, err := deps.cellResolver.Get().Resolve(CellResolveInput{
+					Path:       cellPath,
+					RemoteAddr: req.RemoteAddr,
+					Headers:    req.Header,
+					Review:     reviewRequest.Request,
+				})
+				if err != nil {
+					err = errors.Tag("ResolveCell", err)
+
+					resp.WriteHeader(http.StatusBadRequest)
+					if _, err = resp.Write(fmt.Appendf(nil, "error resolving cell from admission request: %v", err)); err != nil {
+						deps.observer.Get().HttpError(
+							ctx,
+							observer.HttpError{Err: err},
+						)
+					}
+
+					return
+				}
+
+				ctx, cellCtxCancelFunc := deps.observer.Get().RequestFromCell(
+					ctx,
+					observer.RequestFromCell{
+						CellId: cellId,
+					},
+				)
+				defer cellCtxCancelFunc()
 
 				auditAnnotations := map[string]string{}
 				result := deps.handler.Get().
@@ -126,7 +155,7 @@ var New = utilhttp.DeclareServer(
 					if !*options.dryRun {
 						resp.WriteHeader(http.StatusInternalServerError)
 
-						if _, err = resp.Write([]byte(fmt.Sprintf("server internal error: %v", err))); err != nil {
+						if _, err = resp.Write(fmt.Appendf(nil, "server internal error: %v", err)); err != nil {
 							deps.observer.Get().HttpError(
 								ctx,
 								observer.HttpError{Err: err},
@@ -196,8 +225,9 @@ type Options struct {
 }
 
 type Deps struct {
-	observer component.Dep[observer.Observer]
-	handler  component.Dep[handler.Api]
+	observer     component.Dep[observer.Observer]
+	handler      component.Dep[handler.Api]
+	cellResolver component.Dep[CellResolver]
 }
 
 type State struct{}

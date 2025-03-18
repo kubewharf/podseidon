@@ -35,6 +35,8 @@ type Observer struct {
 	HttpRequestComplete o11y.ObserveFunc[RequestComplete]
 	HttpError           o11y.ObserveFunc[HttpError]
 
+	RequestFromCell o11y.ObserveScopeFunc[RequestFromCell]
+
 	StartHandlePodInPpr o11y.ObserveScopeFunc[StartHandlePodInPpr]
 	EndHandlePodInPpr   o11y.ObserveFunc[EndHandlePodInPpr]
 
@@ -50,7 +52,7 @@ func (Observer) ComponentName() string { return "webhook" }
 func (observer Observer) Join(other Observer) Observer { return o11y.ReflectJoin(observer, other) }
 
 type Request struct {
-	Cell       string
+	CellPath   string
 	RemoteAddr string
 }
 
@@ -74,6 +76,10 @@ const (
 
 type HttpError struct {
 	Err error
+}
+
+type RequestFromCell struct {
+	CellId string
 }
 
 type StartHandlePodInPpr struct {

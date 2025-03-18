@@ -53,7 +53,8 @@ func ProvideMetrics() component.Declared[Observer] {
 			type (
 				requestCtxKey   struct{}
 				requestCtxValue struct {
-					cell      string
+					cellPath  string
+					cellId    string
 					startTime time.Time
 				}
 			)
@@ -69,6 +70,7 @@ func ProvideMetrics() component.Declared[Observer] {
 			)
 
 			type podInPprTags struct {
+				Cell     string
 				Rejected bool
 			}
 
@@ -134,23 +136,28 @@ func ProvideMetrics() component.Declared[Observer] {
 					return context.WithValue(
 						ctx,
 						requestCtxKey{},
-						requestCtxValue{cell: arg.Cell, startTime: startTime},
+						requestCtxValue{cellPath: arg.CellPath, cellId: "<unknown>", startTime: startTime},
 					), util.NoOp
 				},
 				HttpRequestComplete: func(ctx context.Context, arg RequestComplete) {
 					ctxValue := ctx.Value(requestCtxKey{}).(requestCtxValue)
 					requestHandle.Emit(
 						time.Since(ctxValue.startTime),
-						requestTags{Cell: ctxValue.cell, Status: string(arg.Status)},
+						requestTags{Cell: ctxValue.cellPath, Status: string(arg.Status)},
 					)
 				},
 				HttpError: func(ctx context.Context, arg HttpError) {
 					value := ctx.Value(requestCtxKey{}).(requestCtxValue)
 
 					httpErrorHandle.Emit(1, httpErrorTags{
-						Cell:  value.cell,
+						Cell:  value.cellPath,
 						Error: errors.SerializeTags(arg.Err),
 					})
+				},
+				RequestFromCell: func(ctx context.Context, arg RequestFromCell) (context.Context, context.CancelFunc) {
+					value := ctx.Value(requestCtxKey{}).(requestCtxValue)
+					value.cellId = arg.CellId
+					return context.WithValue(ctx, requestCtxKey{}, value), util.NoOp
 				},
 				StartHandlePodInPpr: func(ctx context.Context, arg StartHandlePodInPpr) (context.Context, context.CancelFunc) {
 					return context.WithValue(
@@ -165,20 +172,22 @@ func ProvideMetrics() component.Declared[Observer] {
 					), util.NoOp
 				},
 				EndHandlePodInPpr: func(ctx context.Context, arg EndHandlePodInPpr) {
-					ctxValue := ctx.Value(podInPprCtxKey{}).(podInPprCtxValue)
+					reqCtxValue := ctx.Value(requestCtxKey{}).(requestCtxValue)
+					pipCtxValue := ctx.Value(podInPprCtxKey{}).(podInPprCtxValue)
 
 					tags := podInPprTags{
+						Cell:     reqCtxValue.cellId,
 						Rejected: arg.Rejected,
 					}
 
-					podInPprHandle.Emit(time.Since(ctxValue.startTime), tags)
+					podInPprHandle.Emit(time.Since(pipCtxValue.startTime), tags)
 
 					for _, handle := range handleUniquePprHandles {
-						handle.Emit(fmt.Sprintf("%s/%s", ctxValue.namespace, ctxValue.pprName), tags)
+						handle.Emit(fmt.Sprintf("%s/%s", pipCtxValue.namespace, pipCtxValue.pprName), tags)
 					}
 
 					for _, handle := range handleUniquePodHandles {
-						handle.Emit(fmt.Sprintf("%s/%s", ctxValue.namespace, ctxValue.podName), tags)
+						handle.Emit(fmt.Sprintf("%s/%s", pipCtxValue.namespace, pipCtxValue.podName), tags)
 					}
 				},
 				StartExecuteRetry: func(ctx context.Context, _ StartExecuteRetry) (context.Context, context.CancelFunc) {
