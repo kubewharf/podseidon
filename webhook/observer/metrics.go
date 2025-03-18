@@ -134,7 +134,7 @@ func ProvideMetrics() component.Declared[Observer] {
 					return context.WithValue(
 						ctx,
 						requestCtxKey{},
-						requestCtxValue{cell: arg.Cell, startTime: startTime},
+						requestCtxValue{cell: arg.CellPath, startTime: startTime},
 					), util.NoOp
 				},
 				HttpRequestComplete: func(ctx context.Context, arg RequestComplete) {
