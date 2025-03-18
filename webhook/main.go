@@ -38,6 +38,7 @@ func main() {
 		webhookobserver.Provide,
 		retrybatchobserver.Provide,
 		component.RequireDep(server.New(server.Args{})),
+		server.ProvidePathCellResolver(util.Empty{}, true),
 		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}, true),
 	)
 }

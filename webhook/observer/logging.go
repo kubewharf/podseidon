@@ -43,7 +43,7 @@ func ProvideLogging() component.Declared[Observer] {
 			return Observer{
 				HttpRequest: func(ctx context.Context, arg Request) (context.Context, context.CancelFunc) {
 					logger := klog.FromContext(ctx)
-					logger = logger.WithValues("peerAddr", arg.RemoteAddr, "cell", arg.Cell)
+					logger = logger.WithValues("peerAddr", arg.RemoteAddr, "cell", arg.CellPath)
 					return klog.NewContext(ctx, logger), util.NoOp
 				},
 				HttpRequestComplete: func(ctx context.Context, arg RequestComplete) {

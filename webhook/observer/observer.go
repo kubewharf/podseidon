@@ -50,7 +50,7 @@ func (Observer) ComponentName() string { return "webhook" }
 func (observer Observer) Join(other Observer) Observer { return o11y.ReflectJoin(observer, other) }
 
 type Request struct {
-	Cell       string
+	CellPath   string
 	RemoteAddr string
 }
 
