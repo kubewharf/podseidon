@@ -10,14 +10,12 @@ jobs:
     name: Align gomod versions
     runs-on: [ubuntu-22.04]
     permissions:
-      actions: write
-      contents: write
+      contents: read # content write is through explicit SSH remote in the last step
     if: ${{ startsWith(github.head_ref, 'dependabot/go_modules/')}}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{github.head_ref}}
-          ssh-key: ${{secrets.DEPENDABOT_UPDATE_TOKEN}}
       - name: Identify the module being updated
         run: |
           cat <<EOF | python3 - "${{github.head_ref}}"
@@ -93,8 +91,10 @@ jobs:
             git \
               -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -am "build(deps): update other modules after ${{github.sha}}"
+              commit -am "build(deps): update other modules after $(git log --format=%h -1)"
             git fetch origin
-            git log --oneline -10
-            git push origin HEAD:"${{github.head_ref}}"
+
+            git remote add ssh git@github.com:kubewharf/podseidon
+            ([[ -d ~/.ssh ]] || mkdir ~/.ssh) && echo "${{secrets.DEPENDABOT_UPDATE_TOKEN}}" >~/.ssh/id_rsa && chmod 400 ~/.ssh/id_rsa
+            git push ssh HEAD:"${{github.head_ref}}"
           fi
