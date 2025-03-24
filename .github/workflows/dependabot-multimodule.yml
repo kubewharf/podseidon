@@ -1,0 +1,100 @@
+name: Dependabot gomod updates
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  fix:
+    name: Align gomod versions
+    runs-on: [ubuntu-22.04]
+    permissions:
+      actions: write
+      contents: write
+    if: ${{ startsWith(github.head_ref, 'dependabot/go_modules/')}}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{github.head_ref}}
+          ssh-key: ${{secrets.DEPENDABOT_UPDATE_TOKEN}}
+      - name: Identify the module being updated
+        run: |
+          cat <<EOF | python3 - "${{github.head_ref}}"
+          import sys
+          from pathlib import Path
+
+          parse_branch_name = sys.argv[1].split("/")[2:]
+
+          found = False
+          for i in range(len(parse_branch_name)):
+            try_module_path = "/".join(parse_branch_name[:i+1])
+            if Path(try_module_path).joinpath("go.mod").is_file():
+              found = True
+              local_module_path = try_module_path
+              dep_full_name = "/".join(parse_branch_name[i+1:])
+              break
+
+          if not found:
+            raise Exception(f"Cannot locate local module for {parse_branch_name}")
+
+          go_sum_path = Path(local_module_path).joinpath("go.sum")
+          with go_sum_path.open() as f:
+            go_sum_lines = f.readlines()
+
+          found = False
+          for line in go_sum_lines:
+            line_parts = line.split(" ")
+            if len(line_parts) < 3:
+              continue
+
+            sum_module_name = line_parts[0]
+            sum_module_version = line_parts[1]
+            sum_module_full_name = "{}-{}".format(sum_module_name, sum_module_version[1:])
+
+            if sum_module_full_name == dep_full_name:
+              found = True
+              dep_name = sum_module_name
+              dep_version = sum_module_version
+              break
+
+          if not found:
+            raise Exception(f"Cannot identify the go module being updated")
+
+          with open("commands.sh", "w") as f:
+            for module in [
+              "apis",
+              "client",
+              "util",
+              "generator",
+              "aggregator",
+              "webhook",
+              "allinone",
+              "tests",
+              "tools",
+            ]:
+              f.write(f"pushd {module}\n")
+              f.write(f"go get {sum_module_name}@{dep_version}\n")
+              f.write("go mod tidy\n")
+              f.write(f"popd\n")
+          EOF
+      - name: Execute global updates
+        run: bash -x commands.sh
+      - run: git diff
+      - name: Commit changes
+        run: |
+          set -x
+          if ! git diff --exit-code >/dev/null; then
+            if [[ "$(git log --format=%an -1)" == "github-actions[bot]" ]]; then
+              echo "go mod tidy is not idempotent and may result in infinite commit loop"
+              exit 1
+            fi
+
+            git \
+              -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -am "build(deps): update other modules after ${{github.sha}}"
+            git fetch origin
+            git log --oneline -10
+            git push origin HEAD:"${{github.head_ref}}"
+          fi
