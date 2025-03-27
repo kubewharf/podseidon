@@ -43,7 +43,7 @@ func ProvideLogging() component.Declared[Observer] {
 			return Observer{
 				HttpRequest: func(ctx context.Context, arg Request) (context.Context, context.CancelFunc) {
 					logger := klog.FromContext(ctx)
-					logger = logger.WithValues("peerAddr", arg.RemoteAddr, "cell", arg.Cell)
+					logger = logger.WithValues("peerAddr", arg.RemoteAddr, "cellPath", arg.CellPath)
 					return klog.NewContext(ctx, logger), util.NoOp
 				},
 				HttpRequestComplete: func(ctx context.Context, arg RequestComplete) {
@@ -60,6 +60,11 @@ func ProvideLogging() component.Declared[Observer] {
 				},
 				HttpError: func(ctx context.Context, arg HttpError) {
 					klog.FromContext(ctx).WithCallDepth(1).Error(arg.Err, "HTTP error")
+				},
+				RequestFromCell: func(ctx context.Context, arg RequestFromCell) (context.Context, context.CancelFunc) {
+					logger := klog.FromContext(ctx)
+					logger = logger.WithValues("cellId", arg.CellId)
+					return klog.NewContext(ctx, logger), util.NoOp
 				},
 				StartHandlePodInPpr: func(ctx context.Context, arg StartHandlePodInPpr) (context.Context, context.CancelFunc) {
 					logger := klog.FromContext(ctx)
