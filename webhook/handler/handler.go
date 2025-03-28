@@ -171,12 +171,12 @@ type HandleResult struct {
 	Err       error
 }
 
-func errHandleResult(err error) HandleResult {
+func errHandleResult(err error) (HandleResult, bool) {
 	return HandleResult{
 		Status:    observer.RequestStatusError,
 		Rejection: optional.None[Rejection](),
 		Err:       err,
-	}
+	}, false
 }
 
 //nolint:cyclop // Mostly just top-level error branches. Further abstraction does not improve readability.
@@ -185,7 +185,7 @@ func (api Api) Handle(
 	req *admissionv1.AdmissionRequest,
 	cellId string,
 	auditAnnotations map[string]string,
-) HandleResult {
+) (_ HandleResult, _preferDryRun bool) {
 	if !isRelevantRequest(req) {
 		return HandleResult{
 			Status: observer.RequestStatusNotRelevant,
@@ -194,7 +194,7 @@ func (api Api) Handle(
 				Message: "Unexpected review subject; only pod deletions are handled by this webhook",
 			}),
 			Err: nil,
-		}
+		}, false
 	}
 
 	podJson := req.OldObject.Raw
@@ -213,6 +213,8 @@ func (api Api) Handle(
 		))
 	}
 
+	_, preferDryRun := subject.Annotations[podseidon.PodAnnotationForceDelete]
+
 	isPodReady := false
 
 	if !subject.DeletionTimestamp.IsZero() {
@@ -221,7 +223,7 @@ func (api Api) Handle(
 			Status:    observer.RequestStatusAlreadyTerminating,
 			Rejection: optional.None[Rejection](),
 			Err:       nil,
-		}
+		}, preferDryRun
 	}
 
 	if readyConditionIndex := util.FindInSliceWith(
@@ -240,7 +242,7 @@ func (api Api) Handle(
 			Status:    observer.RequestStatusAlreadyUnavailable,
 			Rejection: optional.None[Rejection](),
 			Err:       nil,
-		}
+		}, preferDryRun
 	}
 
 	if !api.state.informerHasSynced() {
@@ -261,7 +263,7 @@ func (api Api) Handle(
 		if !canContinue {
 			auditAnnotations[podseidon.AuditAnnotationRejectByPpr] = pprRef.Name
 
-			return result
+			return result, preferDryRun
 		}
 
 		admitted++
@@ -277,7 +279,7 @@ func (api Api) Handle(
 		result.Status = observer.RequestStatusUnmatched
 	}
 
-	return result
+	return result, preferDryRun
 }
 
 func (api Api) handlePodInPpr(

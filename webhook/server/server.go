@@ -105,7 +105,7 @@ var New = utilhttp.DeclareServer(
 					deps.observer.Get().HttpError(ctx, observer.HttpError{Err: err})
 
 					resp.WriteHeader(http.StatusBadRequest)
-					if _, err = resp.Write([]byte(fmt.Sprintf("error parsing JSON body: %v", err))); err != nil {
+					if _, err = resp.Write(fmt.Appendf(nil, "error parsing JSON body: %v", err)); err != nil {
 						deps.observer.Get().HttpError(
 							ctx,
 							observer.HttpError{Err: err},
@@ -116,17 +116,19 @@ var New = utilhttp.DeclareServer(
 				}
 
 				auditAnnotations := map[string]string{}
-				result := deps.handler.Get().
+				result, preferDryRun := deps.handler.Get().
 					Handle(ctx, reviewRequest.Request, cellId, auditAnnotations)
+				dryRun := *options.dryRun || preferDryRun
+
 				if result.Err != nil {
 					err = errors.Tag("Handle", result.Err)
 
 					deps.observer.Get().HttpError(ctx, observer.HttpError{Err: err})
 
-					if !*options.dryRun {
+					if !dryRun {
 						resp.WriteHeader(http.StatusInternalServerError)
 
-						if _, err = resp.Write([]byte(fmt.Sprintf("server internal error: %v", err))); err != nil {
+						if _, err = resp.Write(fmt.Appendf(nil, "server internal error: %v", err)); err != nil {
 							deps.observer.Get().HttpError(
 								ctx,
 								observer.HttpError{Err: err},
@@ -141,7 +143,7 @@ var New = utilhttp.DeclareServer(
 						Status:  result.Status,
 					})
 
-					if !*options.dryRun {
+					if !dryRun {
 						_ = json.NewEncoder(resp).Encode(&admissionv1.AdmissionReview{
 							TypeMeta: metav1.TypeMeta{
 								APIVersion: admissionv1.SchemeGroupVersion.String(),

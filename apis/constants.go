@@ -43,6 +43,21 @@ const GeneratorFinalizer = "podseidon.kubewharf.io/generator"
 // This removal is handled by the generator leader when it reconciles the object.
 const PprAnnotationRemoveCellOnce = "podseidon.kubewharf.io/remove-cell-once"
 
+// Annotates pods that are never rejected.
+//
+// Podseidon webhook still handles its deletion requests and reports metrics normally,
+// but the admission review response is always positive.
+// This has the same effect as enabling `--webhook-dry-run=true`,
+// but only affects the pod that contains this annotation.
+//
+// This annotation takes effect as long as it exists under .metadata.annotations of a pod;
+// regardless of the annotation value.
+// It is RECOMMENDED that the annotation is a PascalCase string
+// documenting why this pod should be exempted from protection.
+// Annotation values starting with `{` are reserved for future extension;
+// handling such pods in the current version of Podseidon webhook results in unspecified behavior.
+const PodAnnotationForceDelete = "podseidon.kubewharf.io/force-delete"
+
 const (
 	// Indicates that the request went through a webhook dry-run.
 	AuditAnnotationDryRun = "dry-run"
