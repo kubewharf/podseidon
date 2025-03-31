@@ -2,8 +2,10 @@ module github.com/kubewharf/podseidon/tools
 
 go 1.23.0
 
+toolchain go1.24.1
+
 require (
-	github.com/daixiang0/gci v0.13.5
+	github.com/daixiang0/gci v0.13.6
 	github.com/itchyny/gojq v0.12.17
 	github.com/segmentio/golines v0.12.2
 	golang.org/x/tools v0.31.0
