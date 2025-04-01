@@ -1,7 +1,7 @@
 name: Dependabot gomod updates
 
 on:
-  pull_request:
+  pull_request_target:
     branches: ["main"]
     types: [opened, synchronize, reopened]
 
@@ -11,14 +11,23 @@ jobs:
     runs-on: [ubuntu-22.04]
     permissions:
       contents: read # content write is through explicit SSH remote in the last step
-    if: ${{ startsWith(github.head_ref, 'dependabot/go_modules/')}}
+    if: ${{ startsWith(github.event.pull_request.head.ref, 'dependabot/go_modules/')}}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{github.head_ref}}
+          ref: ${{github.event.pull_request.head.ref}}
+          persist-credentials: false
       - name: Identify the module being updated
         run: |
-          cat <<EOF | python3 - "${{github.head_ref}}"
+          # Warning: this script must remain in the workflow file
+          # to avoid running arbitrary code from untrusted PR authors with pull_request_target access.
+          #
+          # This script only executes `go get` and `go mod tidy`,
+          # which are commands in the environment and cannot be overridden by PR changes.
+          #
+          # See https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
+
+          cat <<EOF | python3 - "${{github.event.pull_request.head.ref}}"
           import sys
           from pathlib import Path
 
@@ -96,5 +105,5 @@ jobs:
 
             git remote add ssh git@github.com:kubewharf/podseidon
             ([[ -d ~/.ssh ]] || mkdir ~/.ssh) && echo "${{secrets.DEPENDABOT_UPDATE_TOKEN}}" >~/.ssh/id_rsa && chmod 400 ~/.ssh/id_rsa
-            git push ssh HEAD:"${{github.head_ref}}"
+            git push ssh HEAD:"${{github.event.pull_request.head.ref}}"
           fi
