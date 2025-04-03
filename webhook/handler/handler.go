@@ -84,7 +84,7 @@ var New = component.Declare(
 			defaultConfig: component.DepPtr(requests, defaultconfig.New(util.Empty{})),
 		}
 	},
-	func(_ context.Context, _ Args, options Options, deps Deps) (*State, error) {
+	func(_ context.Context, args Args, options Options, deps Deps) (*State, error) {
 		sourceProvider := deps.sourceProvider.Get()
 
 		poolReader, poolWriter := util.NewLateInit[retrybatch.Pool[pprutil.PodProtectorKey, BatchArg, pprutil.DisruptionResult]]()
@@ -98,7 +98,7 @@ var New = component.Declare(
 					sourceProvider: sourceProvider,
 					pprInformer:    deps.pprInformer.Get(),
 					observer:       deps.observer.Get(),
-					clock:          clock.RealClock{},
+					clock:          args.Clock,
 					retryBackoff: func() time.Duration {
 						return jitterDuration(
 							*options.RetryBackoffBase,
@@ -128,13 +128,16 @@ var New = component.Declare(
 	func(d *component.Data[Args, Options, Deps, State]) Api {
 		return Api{
 			state:       d.State,
+			clk:         d.Args.Clock,
 			observer:    d.Deps.observer.Get(),
 			pprInformer: d.Deps.pprInformer.Get(),
 		}
 	},
 )
 
-type Args struct{}
+type Args struct {
+	Clock clock.Clock
+}
 
 type Options struct {
 	ColdStartDelay   *time.Duration
@@ -161,6 +164,7 @@ type State struct {
 
 type Api struct {
 	state       *State
+	clk         clock.Clock
 	observer    observer.Observer
 	pprInformer pprutil.IndexedInformer
 }
@@ -215,8 +219,6 @@ func (api Api) Handle(
 
 	_, preferDryRun := subject.Annotations[podseidon.PodAnnotationForceDelete]
 
-	isPodReady := false
-
 	if !subject.DeletionTimestamp.IsZero() {
 		// Pods that are already terminating should not contribute twice to the admission history.
 		return HandleResult{
@@ -226,20 +228,26 @@ func (api Api) Handle(
 		}, preferDryRun
 	}
 
+	podReadyTimeOpt := optional.None[time.Duration]()
+
 	if readyConditionIndex := util.FindInSliceWith(
 		subject.Status.Conditions,
 		func(condition corev1.PodCondition) bool { return condition.Type == corev1.PodReady },
 	); readyConditionIndex != -1 {
-		isPodReady = subject.Status.Conditions[readyConditionIndex].Status == corev1.ConditionTrue
+		condition := subject.Status.Conditions[readyConditionIndex]
+		if condition.Status == corev1.ConditionTrue {
+			podReadyTimeOpt = optional.Some(api.clk.Since(condition.LastTransitionTime.Time))
+		}
 	}
 
+	podReadyTime, isPodReady := podReadyTimeOpt.Get()
 	if !isPodReady {
-		// Do not reject pods that are already unavailable anyway.
+		// Do not reject pods that are already unready anyway.
 		// We expect that aggregator should have concluded the unavailability event.
 		// If aggregator is not working, webhook is not a reliable way to stack up the admission history either,
 		// since the webhook timestamp is not the timestamp that the pod became unavailable.
 		return HandleResult{
-			Status:    observer.RequestStatusAlreadyUnavailable,
+			Status:    observer.RequestStatusAlreadyUnready,
 			Rejection: optional.None[Rejection](),
 			Err:       nil,
 		}, preferDryRun
@@ -258,7 +266,7 @@ func (api Api) Handle(
 		// Ideally we should roll back previous PodProtectors,
 		// but it is currently unimplemented because
 		// there are no pods matching multiple PodProtectors in practice.
-		result, canContinue := api.handlePodInPpr(ctx, pprRef, subject, req.UserInfo, cellId)
+		result, canContinue := api.handlePodInPpr(ctx, pprRef, subject, podReadyTime, req.UserInfo, cellId)
 
 		if !canContinue {
 			auditAnnotations[podseidon.AuditAnnotationRejectByPpr] = pprRef.Name
@@ -286,6 +294,7 @@ func (api Api) handlePodInPpr(
 	ctx context.Context,
 	pprRef pprutil.PodProtectorKey,
 	pod *corev1.Pod,
+	podReadyTime time.Duration,
 	user authenticationv1.UserInfo,
 	cellId string,
 ) (_ HandleResult, _canContinue bool) {
@@ -298,7 +307,7 @@ func (api Api) handlePodInPpr(
 	})
 	defer cancelFunc()
 
-	result := api.determineRejection(ctx, pprRef, pod, cellId)
+	result := api.determineRejection(ctx, pprRef, podReadyTime, pod, cellId)
 
 	// code is only used for o11y.
 	{
@@ -331,9 +340,35 @@ func isRelevantRequest(req *admissionv1.AdmissionRequest) bool {
 func (api Api) determineRejection(
 	ctx context.Context,
 	pprRef pprutil.PodProtectorKey,
+	podReadyTime time.Duration,
 	pod *corev1.Pod,
 	cellId string,
 ) HandleResult {
+	ppr, err := api.pprInformer.Get(pprRef)
+	if err != nil || ppr.IsNone() {
+		return HandleResult{
+			Status: observer.RequestStatusError,
+			Rejection: optional.Some(Rejection{
+				Code:    http.StatusInternalServerError,
+				Message: fmt.Sprintf("Cannot fetch ppr from informer store: %s", err.Error()),
+			}),
+			Err: errors.TagWrapf("GetPprFromInformer", err, "cannot fetch PodProtector from informer store"),
+		}
+	}
+
+	// Pods that are still unavailable do not contribute to the availability of the PodProtector and can be safely deleted.
+	// There is a possible race condition where the pod becomes available just after this request gets admitted
+	// e.g. due to clock skew or network latency in replicaset/deployment controller allowing the next pod to roll,
+	// but this marginal case is exceptionally rare and is impractical to prevent.
+	minReadySeconds := ppr.MustGet("checked !ppr.IsNone()").Spec.MinReadySeconds
+	if podReadyTime < time.Duration(minReadySeconds)*time.Second {
+		return HandleResult{
+			Status:    observer.RequestStatusStillUnavailable,
+			Rejection: optional.None[Rejection](),
+			Err:       nil,
+		}
+	}
+
 	result, err := api.state.poolReader.Get().Submit(ctx, pprRef, BatchArg{CellId: cellId, PodUid: pod.UID})
 	if err != nil {
 		return HandleResult{
