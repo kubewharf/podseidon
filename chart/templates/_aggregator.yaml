@@ -27,12 +27,12 @@
 {{- define "podseidon.aggregator.volumes.yaml"}}
 {{dict
     "config" .main.Values.aggregator.coreCluster
-    "volumeName" (printf "%s-aggregator-core-cluster" .main.Release.Name)
+    "volumeName" (printf "%s-%s-core-cluster" .main.Release.Name .instance)
     "argPrefix" "core"
   | include "podseidon.kubeconfig.volumes.yaml"}}
 {{dict
     "config" .main.Values.aggregator.workerCluster
-    "volumeName" (printf "%s-aggregator-worker-cluster" .main.Release.Name)
+    "volumeName" (printf "%s-%s-worker-cluster" .main.Release.Name .instance)
     "argPrefix" "worker"
   | include "podseidon.kubeconfig.volumes.yaml"}}
 {{- end}}
@@ -45,13 +45,13 @@
 {{dict
     "component" .component
     "config" .main.Values.aggregator.coreCluster
-    "volumeName" (printf "%s-aggregator-core-cluster" .main.Release.Name)
+    "volumeName" (printf "%s-%s-core-cluster" .main.Release.Name .instance)
     "argPrefix" "core"
   | deepCopy | merge (deepCopy .) | include "podseidon.kubeconfig.args.yaml"}}
 {{dict
     "component" .component
     "config" .main.Values.aggregator.workerCluster
-    "volumeName" (printf "%s-aggregator-worker-cluster" .main.Release.Name)
+    "volumeName" (printf "%s-%s-worker-cluster" .main.Release.Name .instance)
     "argPrefix" "worker"
   | deepCopy | merge (deepCopy .) | include "podseidon.kubeconfig.args.yaml"}}
 aggregator-worker-concurrency: {{toJson .main.Values.aggregator.workerCount}}

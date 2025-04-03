@@ -34,7 +34,10 @@ and adds some rules to avoid common footguns.
 7. All templates SHOULD expect a dictionary parameter with the keys listed below.
   Templates that accept other keys MUST be explicitly documented.
   - `.main`: main helm context
-  - `.component`: current component name
+  - `.component`: current component name, must be one of "generator", "aggergator" or "webhook"
+  - `.instance`: suffix of the deployment,
+    typically same as `.component` but MAY be extended to allow multiple distinct deployments of the same component;
+    if there are multiple instances, EXACTLY ONE instance MUST be equal to `.component` to generate shared objects
   - `.generic`: equivalent to `(get .main.Values .component)`
 8. All arguments passed to `merge` MUST be `deepCopy`ed,
   unless the value originates from a `fromYaml`/`fromYamlArray` directly

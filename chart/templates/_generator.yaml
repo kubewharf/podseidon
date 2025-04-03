@@ -25,7 +25,7 @@
 {{- define "podseidon.generator.volumes.yaml"}}
 {{dict
     "config" .main.Values.generator.coreCluster
-    "volumeName" (printf "%s-generator-core-cluster" .main.Release.Name)
+    "volumeName" (printf "%s-%s-core-cluster" .main.Release.Name .instance)
     "argPrefix" "core"
   | include "podseidon.kubeconfig.volumes.yaml"}}
 {{- end}}
@@ -38,7 +38,7 @@
 {{dict
     "component" .component
     "config" .main.Values.generator.coreCluster
-    "volumeName" (printf "%s-generator-core-cluster" .main.Release.Name)
+    "volumeName" (printf "%s-%s-core-cluster" .main.Release.Name .instance)
     "argPrefix" "core"
   | deepCopy | merge (deepCopy .) | include "podseidon.kubeconfig.args.yaml"}}
 generator-worker-concurrency: {{toJson .main.Values.generator.workerCount}}

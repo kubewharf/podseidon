@@ -32,7 +32,7 @@ Additional parameters:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{printf "%s-%s" .main.Release.Name .component | toJson}}
+  name: {{printf "%s-%s" .main.Release.Name .instance | toJson}}
   labels: {{include "podseidon.boilerplate.labels.json" .}}
 spec:
   replicas: {{toJson .generic.replicas}}
@@ -146,19 +146,22 @@ Additional parameters:
     Only required if deployedCluster is enabled
   */}}
 {{- define "podseidon.boilerplate.aux.obj"}}
+{{- if eq .component .instance}}{{/* only generate rbac objects once per component */}}
 {{- dict
     "main" .main
     "component" .component
+    "instance" .instance
     "generic" .generic
     "rules" .rbacRules
   | include "podseidon.boilerplate.rbac.obj"}}
+{{- end}}
 
 {{- /* Only include volume secrets if the deployment should be in the current cluster */}}
 {{- if get .main.Values.release .deployedCluster}}
 {{- range $index, $clusterName := .clusters}}
 {{dict
     "config" (get $.generic (printf "%sCluster" $clusterName))
-    "volumeName" (printf "%s-%s-%s-cluster" $.main.Release.Name $.component $clusterName)
+    "volumeName" (printf "%s-%s-%s-cluster" $.main.Release.Name $.instance $clusterName)
     "argPrefix" $clusterName
   | include "podseidon.kubeconfig.extra-objects.obj"}}
 {{- end}}

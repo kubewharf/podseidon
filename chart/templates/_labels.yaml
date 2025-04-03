@@ -13,7 +13,7 @@ Generic labels for an object associated with a component.
 {{- define "podseidon.boilerplate.labels.yaml"}}
 app.kubernetes.io/name: {{include "podseidon.boilerplate.name-label.string" . | toJson}}
 app.kubernetes.io/instance: {{include "podseidon.boilerplate.instance-label.string" . | toJson}}
-app.kubernetes.io/component: {{toJson .component}}
+app.kubernetes.io/component: {{toJson .instance}}
 podseidon.kubewharf.io/release-id: {{include "podseidon.boilerplate.release-id-label.string" . | toJson}}
 {{- end}}
 
@@ -23,7 +23,7 @@ Label selector for pods associated with a component.
 {{- define "podseidon.boilerplate.label-selector.yaml"}}
 app.kubernetes.io/name: {{include "podseidon.boilerplate.name-label.string" . | toJson}}
 app.kubernetes.io/instance: {{include "podseidon.boilerplate.instance-label.string" . | toJson}}
-app.kubernetes.io/component: {{toJson .component}}
+app.kubernetes.io/component: {{toJson .instance}}
 {{- end}}
 
 {{- define "podseidon.boilerplate.name-label.string"}}

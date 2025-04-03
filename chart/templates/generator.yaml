@@ -3,6 +3,7 @@
 {{- $ctx := dict
     "main" .
     "component" "generator"
+    "instance" "generator"
     "generic" .Values.generator
 }}
 {{- dict
