@@ -23,6 +23,7 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/utils/clock"
 
 	podseidon "github.com/kubewharf/podseidon/apis"
 
@@ -63,7 +64,7 @@ var New = utilhttp.DeclareServer(
 	func(_ Args, reqs *component.DepRequests) Deps {
 		return Deps{
 			observer: o11y.Request[observer.Observer](reqs),
-			handler:  component.DepPtr(reqs, handler.New(handler.Args{})),
+			handler:  component.DepPtr(reqs, handler.New(handler.Args{Clock: clock.RealClock{}})),
 		}
 	},
 	func(_ Args, options Options, deps Deps, mux *http.ServeMux) (*State, error) {
