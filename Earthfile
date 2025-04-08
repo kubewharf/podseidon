@@ -244,7 +244,7 @@ tidy:
     END
 
 lint:
-    ARG golangci_lint_docker_image='golangci/golangci-lint:v1.60.3-alpine'
+    ARG golangci_lint_docker_image='golangci/golangci-lint:v2.0.2-alpine'
     FROM ${golangci_lint_docker_image}
 
     ARG GOPROXY='https://proxy.golang.org,direct'

@@ -37,7 +37,7 @@ func TestGetNone(t *testing.T) {
 
 	opt := optional.None[string]()
 	value, isSome := opt.Get()
-	assert.Zero(t, value)
+	assert.Empty(t, value)
 	assert.False(t, isSome)
 }
 
@@ -66,7 +66,7 @@ func TestGetOrZeroNone(t *testing.T) {
 	t.Parallel()
 
 	opt := optional.None[string]()
-	assert.Zero(t, opt.GetOrZero())
+	assert.Empty(t, opt.GetOrZero())
 }
 
 func TestGetOrFnSome(t *testing.T) {
@@ -208,6 +208,6 @@ func TestGetMapNone(t *testing.T) {
 }
 
 func unreachableDueTo[T any](t *testing.T, variant string) T {
-	require.Fail(t, "this function should not be called on %s", variant)
+	require.Failf(t, "this function should not be called on %s", variant)
 	panic("unreachable")
 }

@@ -115,7 +115,6 @@ func recurseScanTags(err error, tags *[]string) {
 
 // Shorthand for Errorf + Tag.
 func TagErrorf(tag string, format string, args ...any) error {
-	//nolint:goerr113 // no precedent static error
 	return Tag(tag, Errorf(format, args...))
 }
 
