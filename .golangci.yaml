@@ -1,3 +1,19 @@
+version: "2"
+formatters:
+  enable:
+    - gci
+    - gofumpt
+    - gofmt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - 'prefix(section/1,github.com/kubewharf/podseidon/api,github.com/kubewharf/podseidon/client)'
+        - 'prefix(section/2,github.com/kubewharf/podseidon/util)'
+        - 'prefix(section/3,github.com/kubewharf/podseidon/generator,github.com/kubewharf/podseidon/aggregator,github.com/kubewharf/podseidon/webhook)'
+        - 'prefix(section/4,github.com/kubewharf/podseidon)'
 linters:
   enable:
     - asasalint
@@ -22,7 +38,6 @@ linters:
     - forbidigo
     # - forcetypeassert # type assertions are explicitly desired
     # - funlen # just measure cyclomatic complexity
-    - gci
     - ginkgolinter
     - gocheckcompilerdirectives
     - gochecknoinits
@@ -34,15 +49,11 @@ linters:
     - godot
     # - godox
     - err113
-    - gofmt
-    - gofumpt
     - goheader
-    - goimports
     - gomoddirectives
     # - gomodguard # does not work with workspaces
     - goprintffuncname
     - gosec
-    - gosimple
     - gosmopolitan
     - govet
     - grouper
@@ -80,16 +91,13 @@ linters:
     - spancheck
     - sqlclosecheck
     - staticcheck
-    - stylecheck
     - tagalign
     - tagliatelle
-    - tenv
     - testableexamples
     - testifylint
     - testpackage
     # - thelper # most helper functions are not low-level assertions
     - tparallel
-    - typecheck
     - unconvert
     - unparam
     - unused
@@ -100,115 +108,124 @@ linters:
     - wrapcheck
     - wsl
     - zerologlint
-linters-settings:
-  gci:
-    sections:
-      - standard
-      - default
-      - 'prefix(section/1,github.com/kubewharf/podseidon/api,github.com/kubewharf/podseidon/client)'
-      - 'prefix(section/2,github.com/kubewharf/podseidon/util)'
-      - 'prefix(section/3,github.com/kubewharf/podseidon/generator,github.com/kubewharf/podseidon/aggregator,github.com/kubewharf/podseidon/webhook)'
-      - 'prefix(section/4,github.com/kubewharf/podseidon)'
-  goheader:
-  template: |
-    Copyright {{ YEAR }} The Podseidon Authors.
+  settings:
+    goheader:
+      values:
+        regexp:
+          ANY_YEAR: 20\d{2}
+      template: |-
+        Copyright {{ANY_YEAR}} The Podseidon Authors.
 
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
+        Licensed under the Apache License, Version 2.0 (the "License");
+        you may not use this file except in compliance with the License.
+        You may obtain a copy of the License at
 
-        http://www.apache.org/licenses/LICENSE-2.0
+            http://www.apache.org/licenses/LICENSE-2.0
 
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
-  gomoddirectives:
-    replace-local: true
-  gosec:
-    excludes:
-      - G404 # allow math/rand
-  importas:
-    no-unaliased: true
-    alias:
-      - pkg: k8s.io/apimachinery/pkg/api/errors
-        alias: apierrors
-      - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
-        alias: metav1
+        Unless required by applicable law or agreed to in writing, software
+        distributed under the License is distributed on an "AS IS" BASIS,
+        WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+        See the License for the specific language governing permissions and
+        limitations under the License.
+    gomoddirectives:
+      replace-local: true
+    gosec:
+      excludes:
+        - G404 # allow math/rand
+    importas:
+      no-unaliased: true
+      alias:
+        - pkg: k8s.io/apimachinery/pkg/api/errors
+          alias: apierrors
+        - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
+          alias: metav1
 
-      - pkg: k8s.io/api/(?P<group>[\w\d]+)/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
-        alias: ${group}${s1}${s2}${s3}
-      - pkg: k8s.io/client-go/kubernetes/typed/(?P<group>[\w\d]+)/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
-        alias: ${group}${s1}${s2}${s3}client
-      - pkg: k8s.io/client-go/informers/(?P<group>[\w\d]+)/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
-        alias: ${group}${s1}${s2}${s3}informers
-      - pkg: k8s.io/client-go/listers/(?P<group>[\w\d]+)/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
-        alias: ${group}${s1}${s2}${s3}listers
+        - pkg: k8s.io/api/(?P<group>[\w\d]+)/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
+          alias: ${group}${s1}${s2}${s3}
+        - pkg: k8s.io/client-go/kubernetes/typed/(?P<group>[\w\d]+)/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
+          alias: ${group}${s1}${s2}${s3}client
+        - pkg: k8s.io/client-go/informers/(?P<group>[\w\d]+)/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
+          alias: ${group}${s1}${s2}${s3}informers
+        - pkg: k8s.io/client-go/listers/(?P<group>[\w\d]+)/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
+          alias: ${group}${s1}${s2}${s3}listers
 
-      - pkg: github.com/kubewharf/podseidon/apis/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
-        alias: podseidon${s1}${s2}${s3}
-      - pkg: github.com/kubewharf/podseidon/client/clientset/versioned
-        alias: podseidonclient
-      - pkg: github.com/kubewharf/podseidon/client/clientset/versioned/fake
-        alias: podseidonfakeclient
-      - pkg: github.com/kubewharf/podseidon/client/clientset/versioned/typed/apis/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
-        alias: podseidon${s1}${s2}${s3}client
-      - pkg: github.com/kubewharf/podseidon/client/informers/externalversions
-        alias: podseidoninformers
-      - pkg: github.com/kubewharf/podseidon/client/informers/externalversions/apis/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
-        alias: podseidon${s1}${s2}${s3}informers
-      - pkg: github.com/kubewharf/podseidon/client/listers/apis/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
-        # fedcorev1a1listers
-        alias: podseidon${s1}${s2}${s3}listers
-  lll:
-    line-length: 140
-  mnd:
-    ignored-numbers: ['0', '1', '2', '3', '4', '8', '16', '32', '64', '0.', '1.', '100.']
-    ignored-functions:
-      - 'fs\.(Duration|Int[0-9]*|Float32|Float64)'
-      - 'utilflag\.(Uint[0-9]*|Int[0-9]*)'
-      - 'metrics\.ExponentialIntHistogram'
-  revive:
-    enable-all-rules: true
+        - pkg: github.com/kubewharf/podseidon/apis/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
+          alias: podseidon${s1}${s2}${s3}
+        - pkg: github.com/kubewharf/podseidon/client/clientset/versioned
+          alias: podseidonclient
+        - pkg: github.com/kubewharf/podseidon/client/clientset/versioned/fake
+          alias: podseidonfakeclient
+        - pkg: github.com/kubewharf/podseidon/client/clientset/versioned/typed/apis/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
+          alias: podseidon${s1}${s2}${s3}client
+        - pkg: github.com/kubewharf/podseidon/client/informers/externalversions
+          alias: podseidoninformers
+        - pkg: github.com/kubewharf/podseidon/client/informers/externalversions/apis/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
+          alias: podseidon${s1}${s2}${s3}informers
+        - pkg: github.com/kubewharf/podseidon/client/listers/apis/(?P<s1>v\d+)((?P<s2>\w)\w+(?P<s3>\d+))?
+          # fedcorev1a1listers
+          alias: podseidon${s1}${s2}${s3}listers
+    lll:
+      line-length: 140
+    mnd:
+      ignored-numbers: ['0', '1', '2', '3', '4', '8', '16', '32', '64', '0.', '1.', '100.']
+      ignored-functions:
+        - 'fs\.(Duration|Int[0-9]*|Float32|Float64)'
+        - 'utilflag\.(Uint[0-9]*|Int[0-9]*)'
+        - 'metrics\.ExponentialIntHistogram'
+    revive:
+      enable-all-rules: true
+      rules:
+        - name: var-naming
+          disabled: true # disable initialism check
+        - name: line-length-limit
+          disabled: true # covered by lll
+        - name: add-constant
+          disabled: true # covered by mnd
+        - name: cognitive-complexity
+          disabled: true # covered by gocognit
+        - name: cyclomatic
+          disabled: true # covered by cyclop
+        - name: unchecked-type-assertion
+          disabled: true # type assertions are explicitly desired
+        - name: max-public-structs
+          disabled: true # too strict
+        - name: confusing-naming
+          disabled: true # does not work correctly, detects duplications across multiple types
+        - name: flag-parameter
+          disabled: true # too strict
+        - name: function-length
+          disabled: true # too strict, gocognit is sufficient
+        - name: empty-block
+          disabled: true # empty blocks are almost always intentional
+        - name: exported
+          disabled: true # too strict
+        - name: package-comments
+          disabled: true # too strict
+    staticcheck:
+      initialisms: [DISABLED]
+      checks:
+        - all
+        - "-QF1008" # defeats the point of embedeed fields
+        - "-ST1000" # pointless repetition
+        - "-ST1020" # pointless repetition
+        - "-ST1021" # pointless repetition
+        - "-ST1022" # pointless repetition
+    varnamelen:
+      min-name-length: 2
+    wrapcheck:
+      ignore-sigs:
+        - 'errors.Tag'
+        - 'errors.TagErrorf'
+        - 'errors.TagWrapf'
+        - 'errors.Join'
+        - 'TryForEach'
+    wsl:
+      allow-separated-leading-comment: true
+      # used to document the control flow of an else branch when the block ends with a single-sided condition
+      allow-trailing-comment: true
+  exclusions:
     rules:
-      - name: var-naming
-        disabled: true # disable initialism check
-      - name: line-length-limit
-        disabled: true # covered by lll
-      - name: add-constant
-        disabled: true # covered by mnd
-      - name: cognitive-complexity
-        disabled: true # covered by gocognit
-      - name: cyclomatic
-        disabled: true # covered by cyclop
-      - name: unchecked-type-assertion
-        disabled: true # type assertions are explicitly desired
-      - name: max-public-structs
-        disabled: true # too strict
-      - name: confusing-naming
-        disabled: true # does not work correctly, detects duplications across multiple types
-      - name: flag-parameter
-        disabled: true # too strict
-      - name: function-length
-        disabled: true # too strict, gocognit is sufficient
-      - name: empty-block
-        disabled: true # empty blocks are almost always intentional
-  stylecheck:
-    initialisms: [DISABLED]
-  varnamelen:
-    min-name-length: 2
-  wrapcheck:
-    ignoreSigs:
-      - 'errors.Tag'
-      - 'errors.TagErrorf'
-      - 'errors.TagWrapf'
-      - 'errors.Join'
-      - 'TryForEach'
-  wsl:
-    allow-separated-leading-comment: true
-    # used to document the control flow of an else branch when the block ends with a single-sided condition
-    allow-trailing-comment: true
-issues:
-  exclude:
-    - 'v1(alpha1)?\.[A-Za-z]+ is missing field' # k8s proto structs are intentionally optional
+      - text: 'v1(alpha1)?\.[A-Za-z]+ is missing field' # k8s proto structs are intentionally optional
+        linters: [exhaustruct]
+      - linters: [revive]
+        text: "struct-tag: unknown option 'inline' in JSON tag"

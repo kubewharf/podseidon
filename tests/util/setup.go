@@ -1,3 +1,17 @@
+// Copyright 2024 The Podseidon Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package testutil
 
 import (
@@ -156,13 +170,15 @@ func (setup *Setup) ReportKelemetryTrace(
 
 	traceTargetsDir, needTrace := os.LookupEnv("KELEMETRY_TRACE_TARGETS")
 	if needTrace {
+		// #nosec G302,G304 -- intended to be exported, default linux file permissions; inputs are from controlled environment
 		file, err := os.OpenFile(
 			path.Join(traceTargetsDir, setup.Namespace),
 			os.O_WRONLY|os.O_CREATE|os.O_EXCL,
-			0o666,
+			0o644,
 		)
 		gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
+		//nolint:errcheck // no need to handle
 		defer file.Close()
 
 		type jsonFile struct {

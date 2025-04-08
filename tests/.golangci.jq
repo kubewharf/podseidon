@@ -1,4 +1,4 @@
-  .issues.["exclude-rules"] |= [(. // [])[], {
+  .linters.exclusions.rules |= [(. // [])[], {
     "linters": [
         "paralleltest",
         "mnd",
