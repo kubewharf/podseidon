@@ -9,7 +9,7 @@ require (
 	github.com/kubewharf/podseidon/client v0.0.0
 	github.com/kubewharf/podseidon/util v0.0.0-00010101000000-000000000000
 	github.com/onsi/ginkgo/v2 v2.23.4
-	github.com/onsi/gomega v1.36.3
+	github.com/onsi/gomega v1.37.0
 	gopkg.in/evanphx/json-patch.v4 v4.12.0
 	k8s.io/api v0.32.3
 	k8s.io/apimachinery v0.32.3
