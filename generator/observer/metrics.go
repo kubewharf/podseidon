@@ -34,18 +34,21 @@ func ProvideMetrics() component.Declared[Observer] {
 		func(deps metrics.ObserverDeps) Observer {
 			type reconcileGvrKey struct{}
 
-			type ReconcileGvr struct{ Group, Version, Resource string }
+			type ReconcileTags struct {
+				Group, Version, Resource string
+				Namespace                string
+			}
 
 			type reconcileStartTime struct{}
 
-			type generatorReconcileTags struct {
-				ReconcileGvr
+			type reconcileTags struct {
+				ReconcileTags
 
 				Error string
 			}
 
-			type generatorActionTags struct {
-				ReconcileGvr
+			type actionTag struct {
+				ReconcileTags
 
 				Action string
 			}
@@ -55,7 +58,7 @@ func ProvideMetrics() component.Declared[Observer] {
 				"generator_reconcile",
 				"Duration of generator reconcile runs.",
 				metrics.FunctionDurationHistogram(),
-				metrics.NewReflectTags[generatorReconcileTags](),
+				metrics.NewReflectTags[reconcileTags](),
 			)
 
 			actionTypeHandle := metrics.Register(
@@ -63,12 +66,12 @@ func ProvideMetrics() component.Declared[Observer] {
 				"generator_action",
 				"Number of generator reconcile runs by action.",
 				metrics.IntCounter(),
-				metrics.NewReflectTags[generatorActionTags](),
+				metrics.NewReflectTags[actionTag](),
 			)
 			emitAction := func(ctx context.Context, action string) {
-				actionTypeHandle.Emit(1, generatorActionTags{
-					ReconcileGvr: ctx.Value(reconcileGvrKey{}).(ReconcileGvr),
-					Action:       action,
+				actionTypeHandle.Emit(1, actionTag{
+					ReconcileTags: ctx.Value(reconcileGvrKey{}).(ReconcileTags),
+					Action:        action,
 				})
 			}
 
@@ -77,10 +80,11 @@ func ProvideMetrics() component.Declared[Observer] {
 			return Observer{
 				InterpretProtectors: func(context.Context, InterpretProtectors) {},
 				StartReconcile: func(ctx context.Context, arg StartReconcile) (context.Context, context.CancelFunc) {
-					ctx = context.WithValue(ctx, reconcileGvrKey{}, ReconcileGvr{
-						Group:    arg.Group,
-						Version:  arg.Version,
-						Resource: arg.Resource,
+					ctx = context.WithValue(ctx, reconcileGvrKey{}, ReconcileTags{
+						Group:     arg.Group,
+						Version:   arg.Version,
+						Resource:  arg.Resource,
+						Namespace: arg.Namespace,
 					})
 					ctx = context.WithValue(ctx, reconcileStartTime{}, time.Now())
 
@@ -89,9 +93,9 @@ func ProvideMetrics() component.Declared[Observer] {
 				EndReconcile: func(ctx context.Context, arg EndReconcile) {
 					duration := time.Since(ctx.Value(reconcileStartTime{}).(time.Time))
 
-					reconcileHandle.Emit(duration, generatorReconcileTags{
-						ReconcileGvr: ctx.Value(reconcileGvrKey{}).(ReconcileGvr),
-						Error:        errors.SerializeTags(arg.Err),
+					reconcileHandle.Emit(duration, reconcileTags{
+						ReconcileTags: ctx.Value(reconcileGvrKey{}).(ReconcileTags),
+						Error:         errors.SerializeTags(arg.Err),
 					})
 				},
 				DanglingProtector: func(ctx context.Context, ppr *podseidonv1a1.PodProtector) {
@@ -114,11 +118,12 @@ func ProvideMetrics() component.Declared[Observer] {
 					return ctx, util.NoOp
 				},
 				CleanSourceFinalizer: func(ctx context.Context, arg StartReconcile) (context.Context, context.CancelFunc) {
-					actionTypeHandle.Emit(1, generatorActionTags{
-						ReconcileGvr: ReconcileGvr{
-							Group:    arg.Group,
-							Version:  arg.Version,
-							Resource: arg.Resource,
+					actionTypeHandle.Emit(1, actionTag{
+						ReconcileTags: ReconcileTags{
+							Group:     arg.Group,
+							Version:   arg.Version,
+							Resource:  arg.Resource,
+							Namespace: arg.Namespace,
 						},
 						Action: "CleanSourceFinalizer",
 					})

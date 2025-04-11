@@ -45,8 +45,26 @@ generator:
 
   logging: &logging
     verbosity: 4
+    # Log to a file instead of stdout if enabled
     logToFile: ~
+    # Log to a directory instead of stdout if enabled
     logToDir: ~
+
+  metrics: &metrics
+    # Period between observations of passively monitored metrics,
+    # e.g. process age, worker queue length, etc.
+    sampleFrequency: 30s
+
+    tags:
+      # Whether to group metrics by namespace (when available).
+      # Only enable when the number of namespaces in the cluster is a bounded small number;
+      # enabling this for clusters with many namespaces will lead to cardinality explosion.
+      namespace: false
+      # Whether to group metrics by user (when available).
+      # The value would be the authenticated username (or `system:node` for kubelet users).
+      # Only enable when the number of users (including service accounts) with pod deletion access is bounded;
+      # enabling this for clusters with many pod-deleting users will lead to cardinality explosion.
+      user: false
 
   debug: &debug
     pprofEnabled: true
@@ -115,6 +133,7 @@ aggregator:
     retryPeriod: 2s
 
   logging: *logging
+  metrics: *metrics
   debug: *debug
 
   coreCluster: *cluster
@@ -160,6 +179,7 @@ webhook:
     initialDelaySeconds: 15
 
   logging: *logging
+  metrics: *metrics
   debug: *debug
 
   coreCluster: *cluster

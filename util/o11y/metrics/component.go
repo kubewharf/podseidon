@@ -37,10 +37,19 @@ func newRegistry() component.Declared[*registryState] {
 					time.Second*30,
 					"frequency of sending heartbeat and monitoring metrics",
 				),
+				tagFilter: &TagFilter{
+					Namespace: fs.Bool("by-namespace", false, "group metrics by namespace when available"),
+					User: fs.Bool(
+						"by-user",
+						false,
+						"group metrics by username (node name is truncated for kubelet users) when available",
+					),
+				},
 			}
 		},
 		func(RegistryArgs, *component.DepRequests) util.Empty { return util.Empty{} },
 		func(_ context.Context, _ RegistryArgs, options registryOptions, _ util.Empty) (*registryState, error) {
+			tagFilter := options.tagFilter
 			registry := prometheus.NewRegistry()
 
 			registry.MustRegister(
@@ -52,6 +61,7 @@ func newRegistry() component.Declared[*registryState] {
 
 			heartbeatHandle := registerWith(
 				registry,
+				tagFilter,
 				"heartbeat",
 				"Number of seconds since process startup",
 				FloatGauge(),
@@ -60,6 +70,7 @@ func newRegistry() component.Declared[*registryState] {
 
 			return &registryState{
 				PrometheusRegistry: registry,
+				tagFilter:          tagFilter,
 				heartbeatHandle:    heartbeatHandle,
 				flushables:         nil,
 				started:            false,
@@ -97,10 +108,13 @@ type RegistryArgs struct{}
 
 type registryOptions struct {
 	sampleFrequency *time.Duration
+
+	tagFilter *TagFilter
 }
 
 type registryState struct {
 	PrometheusRegistry *prometheus.Registry
+	tagFilter          *TagFilter
 	heartbeatHandle    Handle[util.Empty, float64]
 
 	flushables []func(context.Context)
@@ -119,6 +133,7 @@ func (deps ObserverDeps) Registry() Registry {
 
 	return Registry{
 		Prometheus: state.PrometheusRegistry,
+		TagFilter:  state.tagFilter,
 		flushables: &state.flushables,
 		started:    state.started,
 	}
@@ -143,6 +158,23 @@ func MakeObserverDeps(requests *component.DepRequests) ObserverDeps {
 
 type Registry struct {
 	Prometheus *prometheus.Registry
+	TagFilter  *TagFilter
 	flushables *[]func(context.Context)
 	started    bool
+}
+
+type TagFilter struct {
+	Namespace *bool
+	User      *bool
+}
+
+func (filter *TagFilter) Test(tagName string) bool {
+	switch tagName {
+	case "namespace":
+		return *filter.Namespace
+	case "user":
+		return *filter.User
+	default:
+		return true
+	}
 }
