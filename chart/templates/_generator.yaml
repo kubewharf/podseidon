@@ -34,6 +34,7 @@
 {{include "podseidon.args.leader-election.yaml" .}}
 {{include "podseidon.args.default-admission-history-config.yaml" .main.Values.common.defaultAdmissionHistoryConfig}}
 {{include "podseidon.args.logging.yaml" .}}
+{{include "podseidon.args.metrics.yaml" .}}
 {{include "podseidon.args.debug.yaml" .}}
 {{dict
     "component" .component

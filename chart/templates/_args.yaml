@@ -48,6 +48,15 @@ klog-log-dir: {{toJson .generic.logging.logToDir}}
 {{- end}}
 
 {{- /*
+Metrics args for a component.
+  */}}
+{{- define "podseidon.args.metrics.yaml"}}
+metrics-sample-frequency: {{toJson .generic.metrics.sampleFrequency}}
+metrics-by-namespace: {{toJson .generic.metrics.tags.namespace}}
+metrics-by-user: {{toJson .generic.metrics.tags.user}}
+{{- end}}
+
+{{- /*
 Debugging args for a component.
   */}}
 {{- define "podseidon.args.debug.yaml"}}

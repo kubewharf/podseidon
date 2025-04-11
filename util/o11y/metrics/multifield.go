@@ -27,6 +27,8 @@ func RegisterMultiField[Value any, Tags any](
 	tagsDesc TagsDesc[Tags],
 	fields ...AnyField[Value],
 ) Handle[Tags, Value] {
+	tagsDesc = filteredTagDesc(tagsDesc, registry.TagFilter)
+
 	tagKeys := tagsDesc.TagKeys()
 	for _, field := range fields {
 		registry.Prometheus.MustRegister(field.InitFieldCollector(namePrefix, helpPrefix, tagKeys))

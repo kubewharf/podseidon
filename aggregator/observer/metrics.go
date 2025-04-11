@@ -29,17 +29,20 @@ func ProvideMetrics() component.Declared[Observer] {
 	return o11y.Provide(
 		metrics.MakeObserverDeps,
 		func(deps metrics.ObserverDeps) Observer {
-			type aggregatorReconcileTags struct {
+			type reconcileTags struct {
+				Namespace string
+
 				Error string
 			}
 
-			type aggregatorEnqueueTags struct {
-				Kind string
+			type enqueueTags struct {
+				Namespace string
+				Kind      string
 			}
 
-			type aggregatorEnqueueCtxKey struct{}
+			type enqueueCtxKey struct{}
 
-			type aggregatorEnqueueCtxValue struct {
+			type enqueueCtxValue struct {
 				kind  string
 				start time.Time
 			}
@@ -51,12 +54,14 @@ func ProvideMetrics() component.Declared[Observer] {
 				Error string
 			}
 
+			type namespaceCtxKey struct{}
+
 			reconcileHandle := metrics.Register(
 				deps.Registry(),
 				"aggregator_reconcile",
 				"Duration of an aggregator reconcile run for a PodProtector.",
 				metrics.FunctionDurationHistogram(),
-				metrics.NewReflectTags[aggregatorReconcileTags](),
+				metrics.NewReflectTags[reconcileTags](),
 			)
 
 			enqueueHandle := metrics.Register(
@@ -64,7 +69,7 @@ func ProvideMetrics() component.Declared[Observer] {
 				"aggregator_enqueue",
 				"Duration of an aggregator pod informer event handler run.",
 				metrics.FunctionDurationHistogram(),
-				metrics.NewReflectTags[aggregatorEnqueueTags](),
+				metrics.NewReflectTags[enqueueTags](),
 			)
 
 			indexErrorHandle := metrics.Register(
@@ -72,7 +77,7 @@ func ProvideMetrics() component.Declared[Observer] {
 				"aggregator_index_error",
 				"Number of error events during pod informer event handling.",
 				metrics.IntCounter(),
-				metrics.NewReflectTags[aggregatorReconcileTags](),
+				metrics.NewReflectTags[reconcileTags](),
 			)
 
 			nextEventPoolCurrentSizeHandle := metrics.Register(
@@ -120,45 +125,48 @@ func ProvideMetrics() component.Declared[Observer] {
 			)
 
 			return Observer{
-				StartReconcile: func(ctx context.Context, _ StartReconcile) (context.Context, context.CancelFunc) {
+				StartReconcile: func(ctx context.Context, arg StartReconcile) (context.Context, context.CancelFunc) {
 					ctx = context.WithValue(ctx, reconcileStartTime{}, time.Now())
+					ctx = context.WithValue(ctx, namespaceCtxKey{}, arg.Namespace)
 					return ctx, util.NoOp
 				},
 				EndReconcile: func(ctx context.Context, arg EndReconcile) {
 					duration := time.Since(ctx.Value(reconcileStartTime{}).(time.Time))
 
-					reconcileHandle.Emit(duration, aggregatorReconcileTags{
-						Error: errors.SerializeTags(arg.Err),
+					reconcileHandle.Emit(duration, reconcileTags{
+						Namespace: ctx.Value(namespaceCtxKey{}).(string),
+						Error:     errors.SerializeTags(arg.Err),
 					})
 				},
 				StartEnqueue: func(ctx context.Context, arg StartEnqueue) (context.Context, context.CancelFunc) {
 					ctx = context.WithValue(
 						ctx,
-						aggregatorEnqueueCtxKey{},
-						aggregatorEnqueueCtxValue{
+						enqueueCtxKey{},
+						enqueueCtxValue{
 							kind:  arg.Kind,
 							start: time.Now(),
 						},
 					)
+					ctx = context.WithValue(ctx, namespaceCtxKey{}, arg.Namespace)
 
 					return ctx, util.NoOp
 				},
 				EndEnqueue: func(ctx context.Context, _ EndEnqueue) {
-					ctxValue := ctx.Value(aggregatorEnqueueCtxKey{}).(aggregatorEnqueueCtxValue)
+					ctxValue := ctx.Value(enqueueCtxKey{}).(enqueueCtxValue)
 					duration := time.Since(ctxValue.start)
 
-					enqueueHandle.Emit(duration, aggregatorEnqueueTags{
-						Kind: ctxValue.kind,
+					enqueueHandle.Emit(duration, enqueueTags{
+						Namespace: ctx.Value(namespaceCtxKey{}).(string),
+						Kind:      ctxValue.kind,
 					})
 				},
-				EnqueueError: func(_ context.Context, arg EnqueueError) {
-					indexErrorHandle.Emit(1, aggregatorReconcileTags{
-						Error: errors.SerializeTags(arg.Err),
+				EnqueueError: func(ctx context.Context, arg EnqueueError) {
+					indexErrorHandle.Emit(1, reconcileTags{
+						Namespace: ctx.Value(namespaceCtxKey{}).(string),
+						Error:     errors.SerializeTags(arg.Err),
 					})
 				},
-				Aggregated: func(_ context.Context, _ Aggregated) {
-					// TODO add metrics when more fields are available
-				},
+				Aggregated: func(_ context.Context, _ Aggregated) {},
 				NextEventPoolCurrentSize: func(ctx context.Context, _ util.Empty, getter func() int) {
 					metrics.Repeating(ctx, deps, nextEventPoolCurrentSizeHandle, getter)
 				},

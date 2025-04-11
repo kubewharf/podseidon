@@ -34,16 +34,19 @@ func Register[Value any, Tags any](
 	metricType Type[Value],
 	tagsDesc TagsDesc[Tags],
 ) Handle[Tags, Value] {
-	return registerWith(registry.Prometheus, name, help, metricType, tagsDesc)
+	return registerWith(registry.Prometheus, registry.TagFilter, name, help, metricType, tagsDesc)
 }
 
 func registerWith[Value any, Tags any](
 	registry *prometheus.Registry,
+	filter *TagFilter,
 	name string,
 	help string,
 	metricType Type[Value],
 	tagsDesc TagsDesc[Tags],
 ) Handle[Tags, Value] {
+	tagsDesc = filteredTagDesc(tagsDesc, filter)
+
 	registry.MustRegister(metricType.InitCollector(name, help, tagsDesc.TagKeys()))
 
 	return Handle[Tags, Value]{
@@ -72,6 +75,41 @@ func RegisterFlushable[Value any, Tags any](
 	})
 
 	return Register(registry, name, help, metricType.AsType(), tagsDesc)
+}
+
+func filteredTagDesc[Tags any](tagsDesc TagsDesc[Tags], filter *TagFilter) TagsDesc[Tags] {
+	keys := []string{}
+	selected := []int{}
+
+	for index, key := range tagsDesc.TagKeys() {
+		if filter.Test(key) {
+			keys = append(keys, key)
+			selected = append(selected, index)
+		}
+	}
+
+	return tagsDescSubset[Tags]{base: tagsDesc, keys: keys, subset: selected}
+}
+
+type tagsDescSubset[Tags any] struct {
+	base   TagsDesc[Tags]
+	keys   []string
+	subset []int
+}
+
+func (desc tagsDescSubset[Tags]) TagKeys() []string {
+	return desc.keys
+}
+
+func (desc tagsDescSubset[Tags]) TagValues(instance Tags) []string {
+	superset := desc.base.TagValues(instance)
+	subset := make([]string, len(desc.subset))
+
+	for subIndex, superIndex := range desc.subset {
+		subset[subIndex] = superset[superIndex]
+	}
+
+	return subset
 }
 
 type Handle[Tags any, Value any] struct {

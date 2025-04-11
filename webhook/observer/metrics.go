@@ -17,6 +17,7 @@ package observer
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kubewharf/podseidon/util/component"
@@ -63,13 +64,20 @@ func ProvideMetrics() component.Declared[Observer] {
 				podInPprCtxValue struct {
 					startTime time.Time
 					namespace string
+					user      string
 					pprName   string
 					podName   string
 				}
 			)
 
-			type podInPprTags struct {
+			type PodInPprBaseTags struct {
 				Rejected bool
+			}
+
+			type podInPprTags struct {
+				Namespace string
+				User      string
+				PodInPprBaseTags
 			}
 
 			requestHandle := metrics.Register(
@@ -96,8 +104,8 @@ func ProvideMetrics() component.Declared[Observer] {
 				metrics.NewReflectTags[podInPprTags](),
 			)
 
-			handleUniquePprHandles := make([]metrics.Handle[podInPprTags, string], 0, len(UniqueRejectRateWindows))
-			handleUniquePodHandles := make([]metrics.Handle[podInPprTags, string], 0, len(UniqueRejectRateWindows))
+			handleUniquePprHandles := make([]metrics.Handle[PodInPprBaseTags, string], 0, len(UniqueRejectRateWindows))
+			handleUniquePodHandles := make([]metrics.Handle[PodInPprBaseTags, string], 0, len(UniqueRejectRateWindows))
 
 			for freqStr, freq := range UniqueRejectRateWindows {
 				handleUniquePprHandles = append(handleUniquePprHandles, metrics.RegisterFlushable(
@@ -109,7 +117,7 @@ func ProvideMetrics() component.Declared[Observer] {
 						freqStr,
 					),
 					unique.NewCounterVec(),
-					metrics.NewReflectTags[podInPprTags](),
+					metrics.NewReflectTags[PodInPprBaseTags](),
 					freq,
 				))
 
@@ -122,7 +130,7 @@ func ProvideMetrics() component.Declared[Observer] {
 						freqStr,
 					),
 					unique.NewCounterVec(),
-					metrics.NewReflectTags[podInPprTags](),
+					metrics.NewReflectTags[PodInPprBaseTags](),
 					freq,
 				))
 			}
@@ -153,12 +161,18 @@ func ProvideMetrics() component.Declared[Observer] {
 					})
 				},
 				StartHandlePodInPpr: func(ctx context.Context, arg StartHandlePodInPpr) (context.Context, context.CancelFunc) {
+					user := arg.DeleteUserName
+					if strings.HasPrefix(user, "system:node:") {
+						user = "system:node"
+					}
+
 					return context.WithValue(
 						ctx,
 						podInPprCtxKey{},
 						podInPprCtxValue{
 							startTime: time.Now(),
 							namespace: arg.Namespace,
+							user:      user,
 							pprName:   arg.PprName,
 							podName:   arg.PodName,
 						},
@@ -168,17 +182,21 @@ func ProvideMetrics() component.Declared[Observer] {
 					ctxValue := ctx.Value(podInPprCtxKey{}).(podInPprCtxValue)
 
 					tags := podInPprTags{
-						Rejected: arg.Rejected,
+						Namespace: ctxValue.namespace,
+						User:      ctxValue.user,
+						PodInPprBaseTags: PodInPprBaseTags{
+							Rejected: arg.Rejected,
+						},
 					}
 
 					podInPprHandle.Emit(time.Since(ctxValue.startTime), tags)
 
 					for _, handle := range handleUniquePprHandles {
-						handle.Emit(fmt.Sprintf("%s/%s", ctxValue.namespace, ctxValue.pprName), tags)
+						handle.Emit(fmt.Sprintf("%s/%s", ctxValue.namespace, ctxValue.pprName), tags.PodInPprBaseTags)
 					}
 
 					for _, handle := range handleUniquePodHandles {
-						handle.Emit(fmt.Sprintf("%s/%s", ctxValue.namespace, ctxValue.podName), tags)
+						handle.Emit(fmt.Sprintf("%s/%s", ctxValue.namespace, ctxValue.podName), tags.PodInPprBaseTags)
 					}
 				},
 				StartExecuteRetry: func(ctx context.Context, _ StartExecuteRetry) (context.Context, context.CancelFunc) {
