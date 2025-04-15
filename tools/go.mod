@@ -10,7 +10,7 @@ require (
 	github.com/segmentio/golines v0.12.2
 	golang.org/x/tools v0.32.0
 	k8s.io/code-generator v0.32.3
-	mvdan.cc/gofumpt v0.7.0
+	mvdan.cc/gofumpt v0.8.0
 	sigs.k8s.io/controller-tools v0.17.3
 )
 
