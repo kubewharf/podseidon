@@ -3,6 +3,7 @@
 {{- $ctx := dict
     "main" .
     "component" "webhook"
+    "instance" "webhook"
     "generic" .Values.webhook
 }}
 {{- dict
