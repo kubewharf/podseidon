@@ -58,6 +58,7 @@
 aggregator-worker-concurrency: {{toJson .main.Values.aggregator.workerCount}}
 aggregator-cell-id: {{toJson .main.Values.release.workerCellId}}
 aggregator-pod-label-selector: {{toJson .main.Values.aggregator.podLabelSelector}}
+aggregator-pod-informer-shards: {{.main.Values.aggregator.podInformerShards | default 1 | toJson}}
 aggregator-informer-synctime-algorithm: {{toJson .main.Values.aggregator.syncTimeAlgorithm}}
 
 {{- with .main.Values.aggregator.updateTrigger}}

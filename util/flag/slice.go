@@ -17,6 +17,8 @@ package utilflag
 import (
 	"flag"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // Registers a flag that accepts a comma-separated list of strings.
@@ -38,6 +40,30 @@ func (value *stringSliceValue) Set(input string) error {
 		value.value = []string{}
 	} else {
 		value.value = strings.Split(input, ",")
+	}
+
+	return nil
+}
+
+// Registers a flag that accepts a comma-separated set of strings.
+func StringSet(fs *flag.FlagSet, name string, defaultValue []string, usage string) sets.Set[string] {
+	value := &stringSetValue{value: sets.New(defaultValue...)}
+	fs.Var(value, name, usage)
+
+	return value.value
+}
+
+type stringSetValue struct {
+	value sets.Set[string]
+}
+
+func (value *stringSetValue) String() string { return strings.Join(sets.List(value.value), ",") }
+
+func (value *stringSetValue) Set(input string) error {
+	value.value.Clear()
+
+	if input != "" {
+		value.value.Insert(strings.Split(input, ",")...)
 	}
 
 	return nil

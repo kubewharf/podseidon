@@ -17,6 +17,7 @@ package aggregator
 import (
 	"context"
 	"flag"
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/cache/sharding"
 	"k8s.io/utils/clock"
 
 	podseidonv1a1 "github.com/kubewharf/podseidon/apis/v1alpha1"
@@ -72,6 +74,7 @@ var NewController = component.Declare(
 				"pod-label-selector",
 				"only watch pods matching this label selector, used to reduce memory usage by excluding irrelevant pods",
 			),
+			podInformerShards: fs.Int("pod-informer-shards", 1, "number of pod informer shards (must be supported by apiserver)"),
 			podRelistPeriod: fs.Duration(
 				"pod-relist-period",
 				0,
@@ -121,16 +124,22 @@ var NewController = component.Declare(
 					return
 				}
 
-				go state.runPodInformer(ctx.Done())
+				state.startPodInformers(ctx.Done())
 
-				go deps.observer.Get().NextEventPoolCurrentSize(
-					ctx, util.Empty{},
-					state.caches.notifyOnInformerEvent.ItemCount,
-				)
-				go deps.observer.Get().NextEventPoolCurrentLatency(
-					ctx, util.Empty{},
-					state.caches.notifyOnInformerEvent.TimeSinceLastDrain,
-				)
+				for shardNumber, shard := range state.caches.podInformerShards {
+					arg := observer.NextEventPoolMonitor{ShardNumber: shardNumber}
+
+					go deps.observer.Get().NextEventPoolCurrentSize(
+						ctx,
+						arg,
+						shard.notifyOnInformerEvent.ItemCount,
+					)
+					go deps.observer.Get().NextEventPoolCurrentLatency(
+						ctx,
+						arg,
+						shard.notifyOnInformerEvent.TimeSinceLastDrain,
+					)
+				}
 			}()
 
 			return nil
@@ -148,11 +157,12 @@ type ControllerArgs struct {
 }
 
 type ControllerOptions struct {
-	cellId           *string
-	pprLabelSelector *labels.Selector
-	podLabelSelector *labels.Selector
-	podRelistPeriod  *time.Duration
-	aggRateJitter    [2]*float64
+	cellId            *string
+	pprLabelSelector  *labels.Selector
+	podLabelSelector  *labels.Selector
+	podInformerShards *int
+	podRelistPeriod   *time.Duration
+	aggRateJitter     [2]*float64
 }
 
 type ControllerDeps struct {
@@ -167,7 +177,7 @@ type ControllerDeps struct {
 }
 
 type ControllerState struct {
-	runPodInformer func(<-chan util.Empty)
+	startPodInformers func(<-chan util.Empty)
 
 	caches Caches
 }
@@ -182,12 +192,36 @@ type Sets = *labelindex.Locked[
 type Caches struct {
 	podIndex Sets
 
-	sourceProvider pprutil.SourceProvider
-	podLister      corev1listers.PodLister
-	pprInformer    pprutil.IndexedInformer
+	pprSourceProvider pprutil.SourceProvider
+	pprInformer       pprutil.IndexedInformer
 
-	informerSyncReader synctime.Reader
+	podInformerShards []podInformerShard
+}
 
+func (caches *Caches) findPodFromAnyShard(nsName types.NamespacedName) (*corev1.Pod, error) {
+	var err error
+
+	// TODO: Getting from shards[HashFNV32(nsName.Name)] is asymptotically faster.
+	// Is it worth changing to the O(1) algorithm instead?
+	for _, shard := range caches.podInformerShards {
+		var pod *corev1.Pod
+		if pod, err = shard.podLister.Pods(nsName.Namespace).Get(nsName.Name); err == nil && pod != nil {
+			//nolint:wrapcheck // wrapped by the caller
+			return pod, err
+		}
+	}
+
+	//nolint:wrapcheck // wrapped by the caller
+	return nil, err
+}
+
+func (caches *Caches) getShardNumber(podName string) int {
+	return int(sharding.HashFNV32(podName)) % len(caches.podInformerShards)
+}
+
+type podInformerShard struct {
+	podLister             corev1listers.PodLister
+	informerSyncReader    synctime.Reader
 	notifyOnInformerEvent *nextEventPool
 }
 
@@ -197,50 +231,58 @@ func initController(
 	options ControllerOptions,
 	deps ControllerDeps,
 ) (*ControllerState, error) {
+	if *options.podInformerShards < 1 {
+		return nil, errors.TagErrorf("TooFewShards", "--aggregator-pod-informer-shards must be a positive integer")
+	}
+
 	podIndex := labelindex.NewLocked(
 		labelindex.NewNamespaced(labelindex.NewSets[string], labelindex.ErrorErrAdapter{}),
 		labelindex.ErrorErrAdapter{},
 	)
 
-	informerSyncInitialMarker, informerSyncNotifier, informerSyncReader := synctime.New(deps.syncTimeAlgo.Get())
+	shards := make([]podInformerShard, *options.podInformerShards)
+	podInformers := make([]cache.SharedIndexInformer, *options.podInformerShards)
 
-	nextEventPool := newNextEventPool()
+	for shardNumber := range shards {
+		shard, podInformer, err := newPodInformerShard(ctx, options, deps, shardNumber, podIndex)
+		if err != nil {
+			return nil, err
+		}
 
-	podInformer, podLister, err := createPodInformer(
-		ctx,
-		&options,
-		deps,
-		deps.pprInformer.Get(),
-		podIndex,
-		informerSyncInitialMarker,
-		informerSyncNotifier,
-		nextEventPool,
-	)
-	if err != nil {
-		return nil, errors.TagWrapf("CreatePodInformer", err, "start PodProtector informer")
+		shards[shardNumber] = shard
+
+		podInformers[shardNumber] = podInformer
 	}
 
 	state := &ControllerState{
 		caches: Caches{
-			podIndex:              podIndex,
-			sourceProvider:        deps.sourceProvider.Get(),
-			podLister:             podLister,
-			pprInformer:           deps.pprInformer.Get(),
-			informerSyncReader:    informerSyncReader,
-			notifyOnInformerEvent: nextEventPool,
+			podIndex:          podIndex,
+			pprSourceProvider: deps.sourceProvider.Get(),
+			pprInformer:       deps.pprInformer.Get(),
+			podInformerShards: shards,
 		},
-		runPodInformer: podInformer.Run,
+		startPodInformers: func(stopCh <-chan util.Empty) {
+			for _, informer := range podInformers {
+				go informer.Run(stopCh)
+			}
+		},
 	}
 
 	queue := deps.worker.Get()
+
+	prereqs := map[string]worker.Prereq{
+		"ppr-informer-synced": worker.HasSyncedPrereq(deps.pprInformer.Get().HasSynced),
+	}
+
+	for shardNumber, podInformer := range podInformers {
+		prereqs[fmt.Sprintf("pod-informer-%d-synced", shardNumber)] = worker.HasSyncedPrereq(podInformer.HasSynced)
+	}
+
 	queue.SetExecutor(
 		func(ctx context.Context, item pprutil.PodProtectorKey) error {
 			return reconcile(ctx, args, options, deps, queue, &state.caches, item)
 		},
-		map[string]worker.Prereq{
-			"ppr-informer-synced": worker.HasSyncedPrereq(deps.pprInformer.Get().HasSynced),
-			"pod-informer-synced": worker.HasSyncedPrereq(podInformer.HasSynced),
-		},
+		prereqs,
 	)
 	queue.SetBeforeStart(deps.elector.Get().Await)
 
@@ -258,12 +300,44 @@ func jitterAggregationRate(jitter [2]*float64, configValue time.Duration) time.D
 	return time.Duration(float64(configValue) * multiplier)
 }
 
+func newPodInformerShard(
+	ctx context.Context,
+	options ControllerOptions,
+	deps ControllerDeps,
+	shardNumber int,
+	podIndex Sets,
+) (_zero podInformerShard, _ cache.SharedIndexInformer, _ error) {
+	informerSyncInitialMarker, informerSyncNotifier, informerSyncReader := synctime.New(deps.syncTimeAlgo.Get())
+
+	nextEventPool := newNextEventPool()
+
+	podInformer, podLister, err := createPodInformer(
+		ctx,
+		options,
+		deps,
+		shardNumber,
+		podIndex,
+		informerSyncInitialMarker,
+		informerSyncNotifier,
+		nextEventPool,
+	)
+	if err != nil {
+		return _zero, nil, errors.TagWrapf("CreatePodInformer", err, "start PodProtector informer")
+	}
+
+	return podInformerShard{
+		podLister:             podLister,
+		informerSyncReader:    informerSyncReader,
+		notifyOnInformerEvent: nextEventPool,
+	}, podInformer, nil
+}
+
 //revive:disable-next-line:argument-limit // cannot reasonably reduce
 func createPodInformer(
 	ctx context.Context,
-	options *ControllerOptions,
+	options ControllerOptions,
 	deps ControllerDeps,
-	pprInformer pprutil.IndexedInformer,
+	shardNumber int,
 	podIndex Sets,
 	markInitialInformerSync synctime.InitialMarker,
 	notifyInformerSync synctime.Notifier,
@@ -283,7 +357,7 @@ func createPodInformer(
 		&cache.ListWatch{
 			ListFunc: nil,
 			ListWithContextFunc: func(ctx context.Context, listOptions metav1.ListOptions) (runtime.Object, error) {
-				listOptions.LabelSelector = (*options.podLabelSelector).String()
+				configureListOptions(&listOptions, options, shardNumber)
 
 				list, err := workerCluster.NativeClientSet().
 					CoreV1().
@@ -302,7 +376,8 @@ func createPodInformer(
 			},
 			WatchFunc: nil,
 			WatchFuncWithContext: func(ctx context.Context, listOptions metav1.ListOptions) (watch.Interface, error) {
-				listOptions.LabelSelector = (*options.podLabelSelector).String()
+				configureListOptions(&listOptions, options, shardNumber)
+
 				return workerCluster.NativeClientSet().
 					CoreV1().
 					Pods(workerCluster.TargetNamespace()).
@@ -330,7 +405,7 @@ func createPodInformer(
 		defaultConfig:      defaultConfig,
 		aggRateJitter:      options.aggRateJitter,
 		podIndex:           podIndex,
-		pprInformer:        pprInformer,
+		pprInformer:        deps.pprInformer.Get(),
 		queue:              queue,
 		notifyInformerSync: notifyInformerSync,
 		nextEventPool:      nextEventPool,
@@ -344,6 +419,16 @@ func createPodInformer(
 	}
 
 	return informer, corev1listers.NewPodLister(informer.GetIndexer()), nil
+}
+
+func configureListOptions(listOptions *metav1.ListOptions, options ControllerOptions, shardNumber int) {
+	listOptions.LabelSelector = (*options.podLabelSelector).String()
+
+	if *options.podInformerShards > 1 {
+		listOptions.ShardingIndex = int64(shardNumber)
+		listOptions.ShardingCount = int64(*options.podInformerShards)
+		listOptions.ShardingLabelKey = sharding.DefaultInformerShardingLabelKey
+	}
 }
 
 type podEventHandler struct {
@@ -547,18 +632,6 @@ func tryReconcile(
 		}
 	}
 
-	lastEventTime, hasLastEventTime := caches.informerSyncReader().Get()
-	if !hasLastEventTime {
-		return observer.EndReconcile{
-			Err: errors.TagErrorf(
-				"NoInformerSyncTime",
-				"did not receive prior informer sync time",
-			),
-			HasChange: haschange.New[observer.StatusChangeCause](),
-			Action:    "",
-		}
-	}
-
 	status := util.GetOrAppendSliceWith(
 		&ppr.Status.Cells,
 		func(status *podseidonv1a1.PodProtectorCellStatus) bool { return status.CellId == options.myCellId },
@@ -578,10 +651,36 @@ func tryReconcile(
 		}
 	}
 
-	updateLastEventTime(caches, queueItem, status, &hasChange, lastEventTime)
+	lastEventTimeByShard := make([]time.Time, len(caches.podInformerShards))
+
+	for shardNumber, shard := range caches.podInformerShards {
+		lastEventTime, hasLastEventTime := shard.informerSyncReader().Get()
+		if !hasLastEventTime {
+			return observer.EndReconcile{
+				Err: errors.TagErrorf(
+					"NoInformerSyncTime",
+					"did not receive prior informer sync time",
+				),
+				HasChange: haschange.New[observer.StatusChangeCause](),
+				Action:    "",
+			}
+		}
+
+		lastEventTimeByShard[shardNumber] = lastEventTime
+	}
+
+	minLastEventTime := iter.FromSlice(lastEventTimeByShard).Extremum(time.Time.After).MustGet("number of shards is nonzero")
+
+	updateLastEventTime(
+		caches, queueItem, status, &hasChange,
+		lastEventTimeList{
+			shards: lastEventTimeByShard,
+			min:    minLastEventTime,
+		},
+	)
 
 	if hasChange.HasChanged() {
-		status.Aggregation.LastEventTime.Time = lastEventTime
+		status.Aggregation.LastEventTime.Time = minLastEventTime
 	}
 
 	if requeue, shouldRequeue := requeue.Get(); shouldRequeue {
@@ -592,7 +691,7 @@ func tryReconcile(
 		computedConfig := options.defaultConfig.Compute(optional.Some(ppr.Spec.AdmissionHistoryConfig))
 		pprutil.Summarize(computedConfig, ppr)
 
-		err := caches.sourceProvider.
+		err := caches.pprSourceProvider.
 			UpdateStatus(ctx, queueItem.SourceName, ppr)
 		if err != nil {
 			return observer.EndReconcile{
@@ -630,7 +729,7 @@ func findRelevantPods(caches *Caches, ppr *podseidonv1a1.PodProtector) ([]*corev
 	relevantPods := []*corev1.Pod{}
 
 	if err := podNames.TryForEach(func(podName types.NamespacedName) error {
-		pod, err := caches.podLister.Pods(podName.Namespace).Get(podName.Name)
+		pod, err := caches.findPodFromAnyShard(podName)
 		if err != nil {
 			return errors.TagWrapf("PodListerGet", err, "get pod from lister")
 		}
@@ -664,7 +763,6 @@ func aggregateStatus(
 
 	// #nosec G115 -- len(relevantPods) <= MaxInt32 checked above
 	totalReplicas := int32(len(relevantPods))
-
 	haschange.Assign(changed, &target.TotalReplicas, totalReplicas, observer.StatusChangeCauseCreated)
 
 	readyReplicas := int32(0)
@@ -760,21 +858,35 @@ func isPodAvailable(
 }
 
 // Clean up obsolete admission history observed by the current aggregation.
+//
+//nolint:gocognit // prefer laying out all branches explicitly for clarity of each scenario.
 func updateLastEventTime(
 	caches *Caches,
 	queueItem pprutil.PodProtectorKey,
 	outputStatus *podseidonv1a1.PodProtectorCellStatus,
 	outputChanged *haschange.Changed[observer.StatusChangeCause],
-	lastEventTime time.Time,
+	lastEventTime lastEventTimeList,
 ) {
 	changed := false
 	newBuckets := []podseidonv1a1.PodProtectorAdmissionBucket{}
 
+	shardHasOutstandingBuckets := make([]bool, len(caches.podInformerShards))
+
 	for _, bucket := range outputStatus.History.Buckets {
 		//nolint:nestif // Keep an explicit decision tree for all cases of is_compact * is_obsolete * is_name_aggregated
 		if bucket.PodUid != nil {
+			// Use pod name to determine the informer shard to retrieve lastEventTime from.
+			// If there is only one shard, list.get() always returns the same value, so pod name has no effect.
+			// If there are multiple shards, a pod event can only be compacted
+			// if an event is received from its corresponding informer shard;
+			// if pod name is missing in such a scenario, the oldest event time is assumed,
+			// which may be inaccurate since the reflector for this pod may not have synced this event yet
+			// despite another reflector having synced.
+			podName := optional.IfNonZero(bucket.PodName)
+			shardNumber := optional.Map(podName, caches.getShardNumber)
+
 			// Single-pod bucket.
-			if bucket.StartTime.Time.Before(lastEventTime) {
+			if bucket.StartTime.Time.Before(lastEventTime.get(shardNumber)) {
 				// Obsoleted by the current aggregation.
 				// Do not copy to the new bucket list, no matter pod is aggregated or not.
 				changed = true
@@ -791,10 +903,25 @@ func updateLastEventTime(
 				// the time a pod takes to become ready,
 				// so for simplicity we do not treat it specially.
 				newBuckets = append(newBuckets, *bucket.DeepCopy())
+
+				if shardNumber, isSome := shardNumber.Get(); isSome {
+					// This outstanding bucket can be cleaned up when the shard is updated.
+					shardHasOutstandingBuckets[shardNumber] = true
+				} else {
+					// We don't know which shard this bucket belongs to,
+					// so any informer event that brings the shard from Before(bucket.StartTime) to After
+					// may resolve this shard.
+
+					for shardNumber := range len(lastEventTime.shards) {
+						if lastEventTime.shards[shardNumber].Before(bucket.StartTime.Time) {
+							shardHasOutstandingBuckets[shardNumber] = true
+						}
+					}
+				}
 			}
 		} else {
 			// Compacted bucket.
-			if bucket.EndTime.Time.Before(lastEventTime) {
+			if bucket.EndTime.Time.Before(lastEventTime.min) {
 				// The entire bucket is obsoleted by the current aggregation.
 				// Do not copy to the new bucket list.
 				changed = true
@@ -805,18 +932,41 @@ func updateLastEventTime(
 				// - informer sync time algorithm is inaccurate (e.g. due to clock skew)
 				// - CompactThreshold is set too small
 				newBuckets = append(newBuckets, *bucket.DeepCopy())
+
+				for shardNumber := range len(lastEventTime.shards) {
+					if lastEventTime.shards[shardNumber].Before(bucket.StartTime.Time) {
+						shardHasOutstandingBuckets[shardNumber] = true
+					}
+				}
 			}
 		}
 	}
 
 	if changed {
 		outputStatus.History.Buckets = newBuckets
-
 		outputChanged.Add(observer.StatusChangeCauseHistoryBucketAggregated)
 	}
 
 	if len(newBuckets) > 0 {
 		// There are still outstanding buckets, wait for the next watch event.
-		caches.notifyOnInformerEvent.Push(queueItem)
+
+		for shardNumber, shard := range caches.podInformerShards {
+			if shardHasOutstandingBuckets[shardNumber] {
+				shard.notifyOnInformerEvent.Push(queueItem)
+			}
+		}
 	}
+}
+
+type lastEventTimeList struct {
+	shards []time.Time
+	min    time.Time
+}
+
+func (list lastEventTimeList) get(shardNumber optional.Optional[int]) time.Time {
+	if shardNumber, isSome := shardNumber.Get(); isSome {
+		return list.shards[shardNumber]
+	}
+
+	return list.min
 }

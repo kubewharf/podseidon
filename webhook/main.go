@@ -25,6 +25,7 @@ import (
 	retrybatchobserver "github.com/kubewharf/podseidon/util/retrybatch/observer"
 	"github.com/kubewharf/podseidon/util/util"
 
+	"github.com/kubewharf/podseidon/webhook/handler"
 	webhookobserver "github.com/kubewharf/podseidon/webhook/observer"
 	"github.com/kubewharf/podseidon/webhook/server"
 )
@@ -39,5 +40,6 @@ func main() {
 		retrybatchobserver.Provide,
 		component.RequireDep(server.New(server.Args{})),
 		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}, true),
+		handler.DefaultRequiresPodNameImpls,
 	)
 }

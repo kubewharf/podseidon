@@ -56,6 +56,10 @@ func ProvideMetrics() component.Declared[Observer] {
 
 			type namespaceCtxKey struct{}
 
+			type informerShardTags struct {
+				Shard int
+			}
+
 			reconcileHandle := metrics.Register(
 				deps.Registry(),
 				"aggregator_reconcile",
@@ -85,15 +89,15 @@ func ProvideMetrics() component.Declared[Observer] {
 				"aggregator_next_event_pool_current_size",
 				"Current size of the aggregator NextEventPool (during sample).",
 				metrics.IntGauge(),
-				metrics.NewReflectTags[util.Empty](),
-			).With(util.Empty{})
+				metrics.NewReflectTags[informerShardTags](),
+			)
 			nextEventPoolCurrentLatencyHandle := metrics.Register(
 				deps.Registry(),
 				"aggregator_next_event_pool_current_latency",
 				"Time since the oldest current object in the NextEventPool (during sample).",
 				metrics.DurationGauge(),
-				metrics.NewReflectTags[util.Empty](),
-			).With(util.Empty{})
+				metrics.NewReflectTags[informerShardTags](),
+			)
 			nextEventPoolDrainSize := metrics.Register(
 				deps.Registry(),
 				"aggregator_next_event_pool_drain_count",
@@ -167,14 +171,19 @@ func ProvideMetrics() component.Declared[Observer] {
 					})
 				},
 				Aggregated: func(_ context.Context, _ Aggregated) {},
-				NextEventPoolCurrentSize: func(ctx context.Context, _ util.Empty, getter func() int) {
-					metrics.Repeating(ctx, deps, nextEventPoolCurrentSizeHandle, getter)
-				},
-				NextEventPoolCurrentLatency: func(ctx context.Context, _ util.Empty, getter func() time.Duration) {
+				NextEventPoolCurrentSize: func(ctx context.Context, arg NextEventPoolMonitor, getter func() int) {
 					metrics.Repeating(
 						ctx,
 						deps,
-						nextEventPoolCurrentLatencyHandle,
+						nextEventPoolCurrentSizeHandle.With(informerShardTags{Shard: arg.ShardNumber}),
+						getter,
+					)
+				},
+				NextEventPoolCurrentLatency: func(ctx context.Context, arg NextEventPoolMonitor, getter func() time.Duration) {
+					metrics.Repeating(
+						ctx,
+						deps,
+						nextEventPoolCurrentLatencyHandle.With(informerShardTags{Shard: arg.ShardNumber}),
 						getter,
 					)
 				},

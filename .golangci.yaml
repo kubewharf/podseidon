@@ -23,7 +23,7 @@ linters:
     - containedctx
     - contextcheck
     - copyloopvar
-    - cyclop
+    # - cyclop # prefer gocognit
     - decorder
     - dogsled
     - dupl
@@ -45,12 +45,12 @@ linters:
     - gocognit
     - goconst
     - gocritic
-    # - gocyclo # prefer cyclop
+    # - gocyclo # prefer gocognit
     - godot
     # - godox
     - err113
     - goheader
-    - gomoddirectives
+    # - gomoddirectives # use kubewharf version of client-go
     # - gomodguard # does not work with workspaces
     - goprintffuncname
     - gosec
@@ -106,7 +106,7 @@ linters:
     - wastedassign
     - whitespace
     - wrapcheck
-    - wsl
+    # - wsl # unreasonably strict
     - zerologlint
   settings:
     goheader:
@@ -184,7 +184,7 @@ linters:
         - name: cognitive-complexity
           disabled: true # covered by gocognit
         - name: cyclomatic
-          disabled: true # covered by cyclop
+          disabled: true # covered by gocognit
         - name: unchecked-type-assertion
           disabled: true # type assertions are explicitly desired
         - name: max-public-structs

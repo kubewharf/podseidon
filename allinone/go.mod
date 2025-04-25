@@ -48,6 +48,7 @@ require (
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
 	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
+	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/term v0.31.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
@@ -75,4 +76,10 @@ replace (
 	github.com/kubewharf/podseidon/generator => ../generator
 	github.com/kubewharf/podseidon/util => ../util
 	github.com/kubewharf/podseidon/webhook => ../webhook
+)
+
+replace (
+	k8s.io/apimachinery => github.com/kubewharf/kubernetes/staging/src/k8s.io/apimachinery v0.0.0-20250527032544-4b83dd839ef1
+	k8s.io/api => github.com/kubewharf/kubernetes/staging/src/k8s.io/api v0.0.0-20250527032544-4b83dd839ef1
+	k8s.io/client-go => github.com/kubewharf/kubernetes/staging/src/k8s.io/client-go v0.0.0-20250527032544-4b83dd839ef1
 )
