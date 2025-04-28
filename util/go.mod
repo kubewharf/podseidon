@@ -1,7 +1,8 @@
 module github.com/kubewharf/podseidon/util
 
-go 1.23.0
-toolchain go1.24.1
+go 1.24.0
+
+toolchain go1.24.2
 
 require (
 	github.com/axiomhq/hyperloglog v0.2.5
