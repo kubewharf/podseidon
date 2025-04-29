@@ -281,7 +281,8 @@ func createPodInformer(
 
 	informer := cache.NewSharedIndexInformer(
 		&cache.ListWatch{
-			ListFunc: func(listOptions metav1.ListOptions) (runtime.Object, error) {
+			ListFunc: nil,
+			ListWithContextFunc: func(ctx context.Context, listOptions metav1.ListOptions) (runtime.Object, error) {
 				listOptions.LabelSelector = (*options.podLabelSelector).String()
 
 				list, err := workerCluster.NativeClientSet().
@@ -299,7 +300,8 @@ func createPodInformer(
 
 				return list, nil
 			},
-			WatchFunc: func(listOptions metav1.ListOptions) (watch.Interface, error) {
+			WatchFunc: nil,
+			WatchFuncWithContext: func(ctx context.Context, listOptions metav1.ListOptions) (watch.Interface, error) {
 				listOptions.LabelSelector = (*options.podLabelSelector).String()
 				return workerCluster.NativeClientSet().
 					CoreV1().
