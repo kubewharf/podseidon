@@ -7,7 +7,7 @@ on:
 jobs:
   build:
     name: Build docker images
-    runs-on: [ubuntu-22.04]
+    runs-on: [ubuntu-24.04]
     steps:
       - uses: actions/checkout@v4
       - uses: earthly/actions-setup@v1
@@ -23,7 +23,7 @@ jobs:
         run: ssh-agent earthly --push +build --output_tag=${{github.ref_name}}
   chart:
     name: Build helm chart
-    runs-on: [ubuntu-22.04]
+    runs-on: [ubuntu-24.04]
     steps:
       - uses: actions/checkout@v4
       - uses: earthly/actions-setup@v1
