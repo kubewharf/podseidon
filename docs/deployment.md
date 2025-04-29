@@ -326,7 +326,7 @@ Elevated values of the kube-apiserver metric
 
 ##### Impact
 
-Worker clusters may be uanble to delete pods normally.
+Worker clusters may be unable to delete pods normally.
 
 ##### Response
 
