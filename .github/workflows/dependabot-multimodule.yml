@@ -8,7 +8,7 @@ on:
 jobs:
   fix:
     name: Align gomod versions
-    runs-on: [ubuntu-22.04]
+    runs-on: [ubuntu-24.04]
     permissions:
       contents: read # content write is through explicit SSH remote in the last step
     if: ${{ startsWith(github.event.pull_request.head.ref, 'dependabot/go_modules/')}}

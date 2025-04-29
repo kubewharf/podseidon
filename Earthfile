@@ -14,7 +14,7 @@ SETUP_SSH:
     RUN git config --global url."git@github.com:".insteadOf "https://github.com/"
 
 golang-base:
-    ARG golang_image='golang:1.23-alpine3.20'
+    ARG golang_image='golang:1.24-alpine3.21'
     FROM ${golang_image}
 
     ARG GOPROXY='https://proxy.golang.org,direct'
@@ -146,7 +146,7 @@ build-base:
     RUN --ssh cd util && go mod download
 
 runtime:
-    ARG runtime_image='alpine:3.20'
+    ARG runtime_image='alpine:3.21'
     FROM ${runtime_image}
 
 build-bin:
@@ -411,7 +411,7 @@ build-dlv:
     SAVE ARTIFACT /go/bin/dlv
 
 e2e:
-    ARG dind_image='earthly/dind:alpine-3.19-docker-25.0.5-r0'
+    ARG dind_image='earthly/dind:alpine-3.20-docker-26.1.5-r0'
     FROM ${dind_image}
 
     RUN apk add --no-cache kubectl helm jq curl
