@@ -3,6 +3,7 @@
 {{- $ctx := dict
     "main" .
     "component" "aggregator"
+    "instance" "aggregator"
     "generic" .Values.aggregator
 }}
 {{- dict
