@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/podseidon/util/optional"
-	"github.com/kubewharf/podseidon/util/util"
 )
 
 // `Continue` or `Break`.
@@ -95,16 +94,47 @@ func FlatMap[T any, U any](iter Iter[T], mapFn func(T) Iter[U]) Iter[U] {
 	}
 }
 
+// Folds the elements into an accumulator by repeatedly applying a fold function.
+func Fold[T any, U any](iter Iter[T], initial U, foldFn func(U, T) U) U {
+	state := initial
+
+	iter(func(value T) Flow {
+		state = foldFn(state, value)
+		return Continue
+	})
+
+	return state
+}
+
+// Reduces the elements to a single one by repeatedly applying a pairwise reduce function.
+//
+// Returns `None` if and only if the iterator is empty.
+func (iter Iter[T]) Reduce(reduceFn func(T, T) T) optional.Optional[T] {
+	return Fold(iter, optional.None[T](), func(opt optional.Optional[T], next T) optional.Optional[T] {
+		if state, isSome := opt.Get(); isSome {
+			return optional.Some(reduceFn(state, next))
+		}
+
+		return optional.Some(next)
+	})
+}
+
+func (iter Iter[T]) Extremum(preferRight func(T, T) bool) optional.Optional[T] {
+	return Fold(iter, optional.None[T](), func(opt optional.Optional[T], next T) optional.Optional[T] {
+		opt.SetOrChoose(next, preferRight)
+
+		return opt
+	})
+}
+
 func Any(iter Iter[bool]) bool {
 	found := false
 
-	iter(func(b bool) Flow {
-		if b {
+	iter(func(value bool) Flow {
+		if value {
 			found = true
-
 			return Break
 		}
-
 		return Continue
 	})
 
@@ -354,15 +384,7 @@ func (iter Iter[T]) TryForEach(eachFn func(T) error) error {
 }
 
 func Sum[T constraints.Integer](iter Iter[T]) T {
-	output := util.Zero[T]()
-
-	iter(func(value T) Flow {
-		output += value
-
-		return Continue
-	})
-
-	return output
+	return Fold(iter, 0, func(sum, next T) T { return sum + next })
 }
 
 func Histogram[T comparable](iter Iter[T]) map[T]int {

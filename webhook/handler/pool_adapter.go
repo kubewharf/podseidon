@@ -39,12 +39,13 @@ import (
 type BatchArg = observer.BatchArg
 
 type PoolAdapter struct {
-	sourceProvider pprutil.SourceProvider
-	pprInformer    pprutil.IndexedInformer
-	observer       observer.Observer
-	clock          clock.Clock
-	retryBackoff   func() time.Duration
-	defaultConfig  *defaultconfig.Options
+	sourceProvider  pprutil.SourceProvider
+	pprInformer     pprutil.IndexedInformer
+	observer        observer.Observer
+	clock           clock.Clock
+	requiresPodName RequiresPodName
+	retryBackoff    func() time.Duration
+	defaultConfig   *defaultconfig.Options
 }
 
 func (PoolAdapter) PoolName() string {
@@ -146,11 +147,17 @@ func (adapter PoolAdapter) tryExecute(
 		results[argIndex] = result
 
 		if result == pprutil.DisruptionResultOk {
+			writePodName := ""
+			if adapter.requiresPodName.RequiresPodName(RequiresPodNameArg{CellId: arg.CellId, PodName: arg.PodName}) {
+				writePodName = arg.PodName
+			}
+
 			cellStatus.History.Buckets = append(
 				cellStatus.History.Buckets,
 				podseidonv1a1.PodProtectorAdmissionBucket{
 					StartTime: metav1.MicroTime{Time: executeTime},
 					PodUid:    ptr.To(arg.PodUid),
+					PodName:   writePodName,
 				},
 			)
 		}

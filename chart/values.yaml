@@ -142,6 +142,7 @@ aggregator:
   workerCount: 3
 
   podLabelSelector: "" # a selector that matches all pods in this cell to optimize informer memory usage
+  podInformerShards: 1 # number of pod informer shards to use; apiserver must support kubewharf enhanced sharding list-watch if shards > 1
 
   syncTimeAlgorithm: clock # "clock" to use informer event time, "status" to use last inferred timestamp
 
@@ -189,6 +190,20 @@ webhook:
     base: 100ms
     jitter: 100ms
   dryRun: false # If set to true, the webhook still updates PodProtector normally, but pod deletions are never rejected.
+
+  # Whether pod name should be recorded in admission history.
+  # If there exists an aggregator instance with .aggregator.podInformerShards > 1,
+  # pods observed by this aggregator MUST be handled by a webhook instance
+  # where .webhook.requiresPodName determines the pod name to be required.
+  # Failure to maintain this consistency may result in improper admission history compaction
+  # when multiple reflector shards in aggregator differ in watch lag significantly,
+  # resulting in higher estimated availability of a PodProtector and hence incorrectly allow deletion.
+  #
+  # Allowed values:
+  # - "never": never record pod names (.aggregator.podInformerShards must always be set to 1)
+  # - "always": always record pod names regardless of source (may double admission history storage size)
+  # - {by-cell: [list of cell names as strings]}
+  requiresPodName: "never"
 
   pathPrefix: "" # Mandatory path prefix in webhook requests, e.g. `/podseidon`.
   # If host is nonempty, apiserver will use this path to access webhook instances instead of Kubernetes service discovery.

@@ -47,16 +47,17 @@ func ProvideLogging() component.Declared[Observer] {
 					return klog.NewContext(ctx, logger), util.NoOp
 				},
 				HttpRequestComplete: func(ctx context.Context, arg RequestComplete) {
-					klog.FromContext(ctx).
-						WithValues(
+					logger := klog.FromContext(ctx)
+					if request := arg.Request; request != nil {
+						logger = logger.WithValues(
 							"status", arg.Status,
 							"objNamespace", arg.Request.Namespace,
 							"objName", arg.Request.Name,
 							"requestUid", arg.Request.UID,
 							"dryRun", ptr.Deref(arg.Request.DryRun, false),
-						).
-						V(4).
-						WithCallDepth(1).Info("webhook request completed")
+						)
+					}
+					logger.V(4).WithCallDepth(1).Info("webhook request completed")
 				},
 				HttpError: func(ctx context.Context, arg HttpError) {
 					klog.FromContext(ctx).WithCallDepth(1).Error(arg.Err, "HTTP error")

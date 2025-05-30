@@ -81,7 +81,7 @@ func DeclareMuxImpl[Args any, Options any, Deps any, State any, Interface any](
 			muxArgs[Interface]{
 				description:   optional.None[string](), // to be populated by DeclareMuxInterface
 				impls:         map[string]Declared[MuxImpl[Interface]]{implName: implComp},
-				defaultOption: optional.Some(implName),
+				defaultOption: optional.Some(implName).Filter(func(string) bool { return isDefault }),
 			},
 		)
 

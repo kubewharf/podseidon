@@ -79,9 +79,10 @@ var New = component.Declare(
 					Elector: optional.None[kube.ElectorArgs](),
 				}),
 			),
-			observer:      o11y.Request[observer.Observer](requests),
-			retrybatchObs: o11y.Request[retrybatchobserver.Observer](requests),
-			defaultConfig: component.DepPtr(requests, defaultconfig.New(util.Empty{})),
+			observer:        o11y.Request[observer.Observer](requests),
+			requiresPodName: component.DepPtr(requests, RequestRequiresPodName()),
+			retrybatchObs:   o11y.Request[retrybatchobserver.Observer](requests),
+			defaultConfig:   component.DepPtr(requests, defaultconfig.New(util.Empty{})),
 		}
 	},
 	func(_ context.Context, args Args, options Options, deps Deps) (*State, error) {
@@ -95,10 +96,11 @@ var New = component.Declare(
 			poolConfig: retrybatch.NewPool(
 				deps.retrybatchObs.Get(),
 				PoolAdapter{
-					sourceProvider: sourceProvider,
-					pprInformer:    deps.pprInformer.Get(),
-					observer:       deps.observer.Get(),
-					clock:          args.Clock,
+					sourceProvider:  sourceProvider,
+					pprInformer:     deps.pprInformer.Get(),
+					observer:        deps.observer.Get(),
+					clock:           args.Clock,
+					requiresPodName: deps.requiresPodName.Get(),
 					retryBackoff: func() time.Duration {
 						return jitterDuration(
 							*options.RetryBackoffBase,
@@ -146,11 +148,12 @@ type Options struct {
 }
 
 type Deps struct {
-	sourceProvider component.Dep[pprutil.SourceProvider]
-	pprInformer    component.Dep[pprutil.IndexedInformer]
-	observer       component.Dep[observer.Observer]
-	retrybatchObs  component.Dep[retrybatchobserver.Observer]
-	defaultConfig  component.Dep[*defaultconfig.Options]
+	sourceProvider  component.Dep[pprutil.SourceProvider]
+	pprInformer     component.Dep[pprutil.IndexedInformer]
+	observer        component.Dep[observer.Observer]
+	requiresPodName component.Dep[RequiresPodName]
+	retrybatchObs   component.Dep[retrybatchobserver.Observer]
+	defaultConfig   component.Dep[*defaultconfig.Options]
 }
 
 type State struct {
@@ -369,7 +372,7 @@ func (api Api) determineRejection(
 		}
 	}
 
-	result, err := api.state.poolReader.Get().Submit(ctx, pprRef, BatchArg{CellId: cellId, PodUid: pod.UID})
+	result, err := api.state.poolReader.Get().Submit(ctx, pprRef, BatchArg{CellId: cellId, PodUid: pod.UID, PodName: pod.Name})
 	if err != nil {
 		return HandleResult{
 			Status: observer.RequestStatusError,

@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.17.3
   name: podprotectors.podseidon.kubewharf.io
 spec:
   group: podseidon.kubewharf.io
@@ -199,7 +199,8 @@ spec:
                         buckets:
                           items:
                             description: Each bucket represents either one pod or
-                              the compacted set of old pods.
+                              the compacted set of old pods, allowed by webhook to
+                              delete.
                             properties:
                               counter:
                                 description: Number of approved admission reviews
@@ -210,6 +211,11 @@ spec:
                                 description: End time of this bucket, if this is a
                                   compacted bucket.
                                 format: date-time
+                                type: string
+                              podName:
+                                description: |-
+                                  The name of the pod, if there is only one pod in this bucket.
+                                  This value is only set when the CellRequiresPodName plugin returns true.
                                 type: string
                               podUID:
                                 description: The UID of the pod, if there is only

@@ -98,8 +98,9 @@ type StartExecuteRetry struct {
 
 // Argument for webhook retry-batch-pool, moved to this package to hack import cycles.
 type BatchArg struct {
-	CellId string
-	PodUid types.UID
+	CellId  string
+	PodUid  types.UID
+	PodName string
 }
 
 type EndExecuteRetrySuccess struct {

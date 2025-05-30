@@ -21,7 +21,6 @@ import (
 	"github.com/kubewharf/podseidon/util/haschange"
 	"github.com/kubewharf/podseidon/util/o11y"
 	"github.com/kubewharf/podseidon/util/optional"
-	"github.com/kubewharf/podseidon/util/util"
 )
 
 var Provide = component.RequireDeps(
@@ -39,8 +38,8 @@ type Observer struct {
 	EnqueueError o11y.ObserveFunc[EnqueueError]
 	Aggregated   o11y.ObserveFunc[Aggregated]
 
-	NextEventPoolCurrentSize    o11y.MonitorFunc[util.Empty, int]
-	NextEventPoolCurrentLatency o11y.MonitorFunc[util.Empty, time.Duration]
+	NextEventPoolCurrentSize    o11y.MonitorFunc[NextEventPoolMonitor, int]
+	NextEventPoolCurrentLatency o11y.MonitorFunc[NextEventPoolMonitor, time.Duration]
 	NextEventPoolSingleDrain    o11y.ObserveFunc[NextEventPoolSingleDrain]
 
 	TriggerPodCreate o11y.ObserveFunc[TriggerPodCreate]
@@ -120,6 +119,10 @@ type Aggregated struct {
 	ScheduledReplicas int32
 	RunningReplicas   int32
 	AvailableReplicas int32
+}
+
+type NextEventPoolMonitor struct {
+	ShardNumber int
 }
 
 type NextEventPoolSingleDrain struct {

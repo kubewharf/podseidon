@@ -59,6 +59,14 @@ webhook-dry-run: {{toJson .main.Values.webhook.dryRun}}
 webhook-handler-cold-start-delay: {{toJson .main.Values.webhook.coldStartDelay}}
 webhook-handler-retry-backoff-base: {{toJson .main.Values.webhook.retryBackoff.base}}
 webhook-handler-retry-jitter: {{toJson .main.Values.webhook.retryBackoff.jitter}}
+
+{{$requiresPodName := .main.Values.webhook.requiresPodName | default "never"}}
+{{- if $requiresPodName | typeIs "string"}}
+webhook-requires-pod-name: {{toJson $requiresPodName}}
+{{- else if $requiresPodName | typeIs "object" | and (hasKey $requiresPodName "by-cell")}}
+webhook-requires-pod-name: by-cell
+webhook-requires-pod-name.by-cell-filter: {{get $requiresPodName "by-cell" | toJson}}
+{{- end}}
 {{- end}}
 
 {{- define "podseidon.webhook.env.yaml"}}

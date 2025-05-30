@@ -125,11 +125,14 @@ type PodProtectorAdmissionHistory struct {
 	Buckets []PodProtectorAdmissionBucket `json:"buckets,omitempty"`
 }
 
-// Each bucket represents either one pod or the compacted set of old pods.
+// Each bucket represents either one pod or the compacted set of old pods, allowed by webhook to delete.
 type PodProtectorAdmissionBucket struct {
 	// Start time of this bucket.
 	StartTime metav1.MicroTime `json:"startTime"`
 
+	// The name of the pod, if there is only one pod in this bucket.
+	// This value is only set when the CellRequiresPodName plugin returns true.
+	PodName string `json:"podName,omitempty"`
 	// The UID of the pod, if there is only one pod in this bucket.
 	PodUid *types.UID `json:"podUID,omitempty"`
 

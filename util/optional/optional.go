@@ -167,6 +167,28 @@ func FromPtr[T any](ptr *T) Optional[T] {
 	return Some(*ptr)
 }
 
+// Returns `Some` if the value is not equal to its zero value,
+// `None` otherwise.
+//
+// Note that an empty non-nil slice/map is considered non-zero.
+func IfNonZero[T comparable](value T) Optional[T] {
+	if value == util.Zero[T]() {
+		return None[T]()
+	}
+
+	return Some(value)
+}
+
+// Returns the receiver if it is `fn` passes on the wrapped value.
+// Returns `None` if no value is wrapped or `fn` returns false.
+func (v Optional[T]) Filter(fn func(T) bool) Optional[T] {
+	if v.IsSomeAnd(fn) {
+		return v
+	}
+
+	return None[T]()
+}
+
 // Returns `Some(slice[index])` if it exists, None otherwise.
 func GetSlice[T any](slice []T, index int) Optional[T] {
 	if index >= 0 && index < len(slice) {
