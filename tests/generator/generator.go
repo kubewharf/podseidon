@@ -1,4 +1,4 @@
-// Copyright 2024 The Podseidon Authors.
+// Copyright 2025 The Podseidon Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import (
 
 	"github.com/kubewharf/podseidon/util/iter"
 
+	"github.com/kubewharf/podseidon/tests/provision"
 	testutil "github.com/kubewharf/podseidon/tests/util"
 )
 
@@ -41,28 +42,22 @@ const (
 )
 
 var _ = ginkgo.Describe("Generator", func() {
-	setup := testutil.SetupBeforeEach()
+	var env provision.Env
+	provision.RegisterHooks(&env, provision.NewRequest(2, func(_ testutil.ClusterId, _ *provision.ClusterRequest) {}))
 
 	ginkgo.Context("Deployment", func() {
+		const workloadName string = "workload"
+
 		ginkgo.It("maintains the lifecycle of a child PodProtector", func(ctx ginkgo.SpecContext) {
-			deployClient := setup.CoreNativeClient.AppsV1().Deployments(setup.Namespace)
+			deployClient := env.CoreCluster().NativeClient.AppsV1().Deployments(env.Namespace)
 
-			const workloadName string = "workload"
+			ginkgo.By("Creating deployment", func() {
+				env.ReportKelemetryTrace(testutil.CoreClusterId, appsv1.SchemeGroupVersion.WithResource("deployments"), workloadName)
 
-			var err error
-
-			ginkgo.By("Creating Deployment", func() {
-				setup.ReportKelemetryTrace(
-					ctx,
-					"core",
-					appsv1.SchemeGroupVersion.WithResource("deployments"),
-					workloadName,
-				)
-
-				_, err = deployClient.Create(ctx, &appsv1.Deployment{
+				_, err := deployClient.Create(ctx, &appsv1.Deployment{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   workloadName,
-						Labels: map[string]string{"test": setup.Namespace},
+						Labels: map[string]string{"test": env.Namespace},
 					},
 					Spec: appsv1.DeploymentSpec{
 						Replicas:        ptr.To[int32](10),
@@ -74,11 +69,11 @@ var _ = ginkgo.Describe("Generator", func() {
 							},
 						},
 						Selector: &metav1.LabelSelector{
-							MatchLabels: map[string]string{"test": setup.Namespace},
+							MatchLabels: map[string]string{"test": env.Namespace},
 						},
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
-								Labels: map[string]string{"test": setup.Namespace},
+								Labels: map[string]string{"test": env.Namespace},
 							},
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{
@@ -112,7 +107,7 @@ var _ = ginkgo.Describe("Generator", func() {
 			ginkgo.By("Waiting for PodProtector creation", func() {
 				testutil.ExpectObject[*podseidonv1a1.PodProtector](
 					ctx,
-					setup.PprClient().Watch,
+					env.PprClient().Watch,
 					pprName,
 					synchronousReconcileTimeout,
 					gomega.WithTransform(
@@ -145,7 +140,7 @@ var _ = ginkgo.Describe("Generator", func() {
 			ginkgo.By("Waiting for PodProtector update", func() {
 				testutil.ExpectObject[*podseidonv1a1.PodProtector](
 					ctx,
-					setup.PprClient().Watch,
+					env.PprClient().Watch,
 					pprName,
 					synchronousReconcileTimeout,
 					gomega.WithTransform(
@@ -156,13 +151,13 @@ var _ = ginkgo.Describe("Generator", func() {
 			})
 
 			ginkgo.By("Deleting PodProtector", func() {
-				err := setup.PprClient().Delete(ctx, pprName, metav1.DeleteOptions{})
+				err := env.PprClient().Delete(ctx, pprName, metav1.DeleteOptions{})
 				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			})
 
 			ginkgo.By("PodProtector should remain alive due to finalizer", func() {
 				gomega.Consistently(ctx, func() error {
-					_, err := setup.PprClient().Get(ctx, pprName, metav1.GetOptions{})
+					_, err := env.PprClient().Get(ctx, pprName, metav1.GetOptions{})
 					return err
 				}).WithTimeout(negativeSynchronousReconcileTimeout).ShouldNot(gomega.HaveOccurred())
 			})
@@ -174,7 +169,7 @@ var _ = ginkgo.Describe("Generator", func() {
 
 			ginkgo.By("PodProtector should disappear", func() {
 				gomega.Eventually(ctx, func() error {
-					_, err := setup.PprClient().Get(ctx, pprName, metav1.GetOptions{})
+					_, err := env.PprClient().Get(ctx, pprName, metav1.GetOptions{})
 					return err
 				}).WithTimeout(synchronousReconcileTimeout).Should(
 					gomega.WithTransform(apierrors.ReasonForError, gomega.Equal(metav1.StatusReasonNotFound)),
@@ -187,7 +182,7 @@ var _ = ginkgo.Describe("Generator", func() {
 					return iter.NewPair(deploy, err)
 				}).WithTimeout(synchronousReconcileTimeout).Should(gomega.SatisfyAny(
 					gomega.WithTransform(func(pair iter.Pair[*appsv1.Deployment, error]) []string {
-						if err == nil {
+						if pair.Right == nil {
 							return pair.Left.GetFinalizers()
 						}
 

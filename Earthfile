@@ -435,12 +435,12 @@ e2e:
     ARG KWOK_IMAGE_PREFIX='registry.k8s.io/kwok'
 
     ARG KELEMETRY_ETCD_IMAGE='quay.io/coreos/etcd:v3.4.33'
-    ARG KELEMETRY_JAEGER_QUERY_IMAGE='jaegertracing/jaeger-query:1.42'
-    ARG KELEMETRY_JAEGER_COLLECTOR_IMAGE='jaegertracing/jaeger-collector:1.42'
-    ARG KELEMETRY_JAEGER_REMOTE_STORAGE_IMAGE='jaegertracing/jaeger-remote-storage:1.42'
+    ARG KELEMETRY_JAEGER_QUERY_IMAGE='jaegertracing/jaeger-query:1.65.0'
+    ARG KELEMETRY_JAEGER_COLLECTOR_IMAGE='jaegertracing/jaeger-collector:1.65.0'
+    ARG KELEMETRY_JAEGER_REMOTE_STORAGE_IMAGE='jaegertracing/jaeger-remote-storage:1.65.0'
     ARG KELEMETRY_ALLINONE_IMAGE='ghcr.io/kubewharf/kelemetry:v0.2.7'
-    ARG KELEMETRY_WAIT_WARMUP_SECONDS='5'
-    ARG KELEMETRY_WAIT_SPAN_SLEEP_SECONDS='15'
+    ARG KELEMETRY_WARMUP_SLEEP='5s'
+    ARG KELEMETRY_WAIT_SPAN_SLEEP='15s'
     ARG FAIL_FAST_FOR_INTERACTIVE='no' # If set to yes, fail fast and don't save artifacts on error
 
     WORKDIR /etc/test-assets
@@ -449,18 +449,18 @@ e2e:
             --load podseidon-generator=(+build-image --module=generator) \
             --load podseidon-aggregator=(+build-image --module=aggregator) \
             --load podseidon-webhook=(+build-image --module=webhook) \
-            --pull $KWOK_IMAGE_PREFIX/kwok:v0.6.0 \
+            --pull $KWOK_IMAGE_PREFIX/kwok:v0.7.0 \
             --pull $KWOK_KUBE_IMAGE_PREFIX/etcd:3.5.11-0 \
-            --pull $KWOK_KUBE_IMAGE_PREFIX/kube-apiserver:v1.30.2 \
-            --pull $KWOK_KUBE_IMAGE_PREFIX/kube-controller-manager:v1.30.2 \
-            --pull $KWOK_KUBE_IMAGE_PREFIX/kube-scheduler:v1.30.2 \
+            --pull $KWOK_KUBE_IMAGE_PREFIX/kube-apiserver:v1.33.1 \
+            --pull $KWOK_KUBE_IMAGE_PREFIX/kube-controller-manager:v1.33.1 \
+            --pull $KWOK_KUBE_IMAGE_PREFIX/kube-scheduler:v1.33.1 \
             --pull $KELEMETRY_ETCD_IMAGE \
             --pull $KELEMETRY_JAEGER_QUERY_IMAGE \
             --pull $KELEMETRY_JAEGER_COLLECTOR_IMAGE \
             --pull $KELEMETRY_JAEGER_REMOTE_STORAGE_IMAGE \
             --pull $KELEMETRY_ALLINONE_IMAGE
 
-        RUN (./run.sh || touch /var/trace/error); \
+        RUN (ginkgo --vv --output-interceptor-mode=none -p --trace ./tests.test || touch /var/trace/error); \
             if [ x${FAIL_FAST_FOR_INTERACTIVE} == xyes ]; then \
                 if [ -f /var/trace/error ]; then \
                     exit 1; \
@@ -468,20 +468,8 @@ e2e:
             fi
     END
 
-    FOR component IN generator webhook aggregator-1 aggregator-2
-        FOR stream IN stdout.log stderr.log metrics.txt
-            WAIT
-                SAVE ARTIFACT /var/log/podseidon-${component}.${stream} \
-                    AS LOCAL output/podseidon-${component}.${stream}
-            END
-        END
-    END
-
     WAIT
-        SAVE ARTIFACT /var/trace/traces.tar.gz AS LOCAL output/traces.tar.gz
-        SAVE ARTIFACT /var/log/k8s-audit/core AS LOCAL output/core-audit.log
-        SAVE ARTIFACT /var/log/k8s-audit/worker-1 AS LOCAL output/worker-1-audit.log
-        SAVE ARTIFACT /var/log/k8s-audit/worker-2 AS LOCAL output/worker-2-audit.log
+        SAVE ARTIFACT /var/test-output AS LOCAL output/test-output
     END
 
     ARG fail_on_error='yes'

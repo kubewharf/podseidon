@@ -1,4 +1,4 @@
-// Copyright 2024 The Podseidon Authors.
+// Copyright 2025 The Podseidon Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,6 +30,8 @@ import (
 	"github.com/kubewharf/podseidon/util/defaultconfig"
 	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 
+	"github.com/kubewharf/podseidon/tests/fixtures"
+	"github.com/kubewharf/podseidon/tests/provision"
 	testutil "github.com/kubewharf/podseidon/tests/util"
 )
 
@@ -38,12 +40,18 @@ var _ = ginkgo.Describe("Webhook", func() {
 
 	const aggregatorReconcileTimeout = time.Second * 2
 
-	setup := testutil.SetupBeforeEach()
+	var env provision.Env
+	provision.RegisterHooks(&env, provision.NewRequest(2, func(cluster testutil.ClusterId, req *provision.ClusterRequest) {
+		if cluster.IsWorker() {
+			req.EnableAggregatorUpdateTrigger = true
+		}
+	}))
 
 	ginkgo.It("allows normal deletion and rejects extra deletions", func(ctx ginkgo.SpecContext) {
 		ginkgo.By("Setup PodProtector and worker pods", func() {
-			setup.CreatePodProtectorAndPods(
-				ctx, pprName, testutil.PodCounts{3, 4},
+			fixtures.CreatePodProtectorAndPods(
+				ctx, &env, pprName,
+				testutil.PodCounts{1: 3, 2: 4},
 				5, 0,
 				podseidonv1a1.AdmissionHistoryConfig{
 					MaxConcurrentLag:      nil,
@@ -56,32 +64,32 @@ var _ = ginkgo.Describe("Webhook", func() {
 		ginkgo.By("Mark pods as ready", func() {
 			readyTime := time.Now()
 
-			for _, podId := range (testutil.PodCounts{3, 4}).Iter() {
-				setup.MarkPodAsReady(ctx, podId, readyTime)
+			for _, podId := range (testutil.PodCounts{1: 3, 2: 4}).PodIds() {
+				fixtures.MarkPodAsReady(ctx, &env, podId, readyTime)
 			}
 		})
 
 		ginkgo.By("Wait for PodProtector state to converge", func() {
 			testutil.ExpectObject[*podseidonv1a1.PodProtector](
 				ctx,
-				setup.PprClient().Watch,
+				env.PprClient().Watch,
 				pprName,
 				aggregatorReconcileTimeout,
-				testutil.MatchPprStatus(7, 7, 7, [2]int32{3, 4}, [2]int32{3, 4}),
+				testutil.MatchPprStatus(7, 7, 7, map[testutil.ClusterId]int32{1: 3, 2: 4}, map[testutil.ClusterId]int32{1: 3, 2: 4}),
 			)
 		})
 
 		ginkgo.By("Validate that we can delete one pod from each cluster", func() {
-			for workerIndex := range testutil.WorkerIndex(2) {
-				err := setup.PodClient(workerIndex).
-					Delete(ctx, testutil.PodId{Worker: workerIndex, Pod: 0}.PodName(), metav1.DeleteOptions{})
+			for _, cluster := range env.WorkerClusters() {
+				err := env.PodClient(cluster.Id).
+					Delete(ctx, testutil.PodId{Cluster: cluster.Id, Pod: 0}.PodName(), metav1.DeleteOptions{})
 				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			}
 		})
 
 		ginkgo.By("Validate that excessive deletion is rejected", func() {
-			err := setup.PodClient(0).
-				Delete(ctx, testutil.PodId{Worker: 0, Pod: 1}.PodName(), metav1.DeleteOptions{})
+			err := env.PodClient(1).
+				Delete(ctx, testutil.PodId{Cluster: 1, Pod: 1}.PodName(), metav1.DeleteOptions{})
 			gomega.Expect(err).Should(gomega.SatisfyAll(
 				gomega.HaveOccurred(),
 				gomega.WithTransform(
@@ -104,8 +112,8 @@ var _ = ginkgo.Describe("Webhook", func() {
 
 	ginkgo.It("rejects bulk deletions", func(ctx ginkgo.SpecContext) {
 		ginkgo.By("Setup PodProtector and worker pods", func() {
-			setup.CreatePodProtectorAndPods(
-				ctx, pprName, testutil.PodCounts{3, 4},
+			fixtures.CreatePodProtectorAndPods(
+				ctx, &env, pprName, testutil.PodCounts{1: 3, 2: 4},
 				5, 0,
 				podseidonv1a1.AdmissionHistoryConfig{
 					MaxConcurrentLag:      nil,
@@ -118,23 +126,23 @@ var _ = ginkgo.Describe("Webhook", func() {
 		ginkgo.By("Mark pods as ready", func() {
 			readyTime := time.Now()
 
-			for _, podId := range (testutil.PodCounts{3, 4}).Iter() {
-				setup.MarkPodAsReady(ctx, podId, readyTime)
+			for _, podId := range (testutil.PodCounts{1: 3, 2: 4}).PodIds() {
+				fixtures.MarkPodAsReady(ctx, &env, podId, readyTime)
 			}
 		})
 
 		ginkgo.By("Wait for PodProtector state to converge", func() {
 			testutil.ExpectObject[*podseidonv1a1.PodProtector](
 				ctx,
-				setup.PprClient().Watch,
+				env.PprClient().Watch,
 				pprName,
 				aggregatorReconcileTimeout,
-				testutil.MatchPprStatus(7, 7, 7, [2]int32{3, 4}, [2]int32{3, 4}),
+				testutil.MatchPprStatus(7, 7, 7, map[testutil.ClusterId]int32{1: 3, 2: 4}, map[testutil.ClusterId]int32{1: 3, 2: 4}),
 			)
 		})
 
 		ginkgo.By("Validate that full DeleteCollection is rejected", func() {
-			err := setup.TryDeleteAllPodsIn(ctx, 0)
+			err := fixtures.TryDeleteAllPodsIn(ctx, &env, 1)
 			gomega.Expect(err).Should(gomega.SatisfyAll(
 				gomega.HaveOccurred(),
 				gomega.WithTransform(
@@ -161,8 +169,9 @@ var _ = ginkgo.Describe("Webhook", func() {
 			ginkgo.By("Setup PodProtector and worker pods", func() {
 				var pprUid types.UID
 
-				setup.CreatePodProtector(
+				fixtures.CreatePodProtector(
 					ctx,
+					&env,
 					pprName,
 					&pprUid,
 					1,
@@ -178,12 +187,13 @@ var _ = ginkgo.Describe("Webhook", func() {
 					},
 				)
 
-				for podIndex := range testutil.PodIndex(5) {
-					setup.CreatePod(
+				for podIndex := range uint32(5) {
+					fixtures.CreatePod(
 						ctx,
+						&env,
 						pprName,
 						pprUid,
-						testutil.PodId{Worker: 0, Pod: podIndex},
+						testutil.PodId{Cluster: 1, Pod: podIndex},
 						func(*corev1.Pod) {},
 					)
 				}
@@ -192,16 +202,16 @@ var _ = ginkgo.Describe("Webhook", func() {
 			readyTime := time.Now()
 
 			ginkgo.By("Mark pods as ready", func() {
-				for podIndex := range testutil.PodIndex(5) {
-					setup.MarkPodAsReady(ctx, testutil.PodId{Worker: 0, Pod: podIndex}, readyTime)
+				for podIndex := range uint32(5) {
+					fixtures.MarkPodAsReady(ctx, &env, testutil.PodId{Cluster: 1, Pod: podIndex}, readyTime)
 				}
 			})
 
 			ginkgo.By("Update PodProtector status manually", func() {
 				testutil.DoUpdate(
 					ctx,
-					setup.PprClient().Get,
-					setup.PprClient().UpdateStatus,
+					env.PprClient().Get,
+					env.PprClient().UpdateStatus,
 					pprName,
 					func(ppr *podseidonv1a1.PodProtector) {
 						config := defaultconfig.MustComputeDefaultSetup(
@@ -229,22 +239,22 @@ var _ = ginkgo.Describe("Webhook", func() {
 				// ensure apiserver has received the update so that it can propagate the watch event to webhook
 				testutil.ExpectObject[*podseidonv1a1.PodProtector](
 					ctx,
-					setup.PprClient().Watch,
+					env.PprClient().Watch,
 					pprName,
 					aggregatorReconcileTimeout,
-					testutil.MatchPprStatus(5, 5, 5, [2]int32{5, 0}, [2]int32{5, 0}),
+					testutil.MatchPprStatus(5, 5, 5, map[testutil.ClusterId]int32{1: 5, 2: 0}, map[testutil.ClusterId]int32{1: 5, 2: 0}),
 				)
 			})
 
 			ginkgo.By("Validate that we can delete the first pod", func() {
-				err := setup.PodClient(0).
-					Delete(ctx, testutil.PodId{Worker: 0, Pod: 0}.PodName(), metav1.DeleteOptions{})
+				err := env.PodClient(1).
+					Delete(ctx, testutil.PodId{Cluster: 1, Pod: 0}.PodName(), metav1.DeleteOptions{})
 				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			})
 
 			ginkgo.By("Validate that excessive deletion is rejected", func() {
-				err := setup.PodClient(0).
-					Delete(ctx, testutil.PodId{Worker: 0, Pod: 1}.PodName(), metav1.DeleteOptions{})
+				err := env.PodClient(1).
+					Delete(ctx, testutil.PodId{Cluster: 1, Pod: 1}.PodName(), metav1.DeleteOptions{})
 				gomega.Expect(err).Should(gomega.SatisfyAll(
 					gomega.HaveOccurred(),
 					gomega.WithTransform(
@@ -263,10 +273,11 @@ var _ = ginkgo.Describe("Webhook", func() {
 
 	ginkgo.It("allows unready pod deletion", func(ctx ginkgo.SpecContext) {
 		ginkgo.By("Setup PodProtector and worker pods", func() {
-			setup.CreatePodProtectorAndPods(
+			fixtures.CreatePodProtectorAndPods(
 				ctx,
+				&env,
 				pprName,
-				testutil.PodCounts{1, 0},
+				testutil.PodCounts{1: 1, 2: 0},
 				2, 0,
 				podseidonv1a1.AdmissionHistoryConfig{
 					MaxConcurrentLag:      nil,
@@ -279,25 +290,26 @@ var _ = ginkgo.Describe("Webhook", func() {
 		ginkgo.By("Wait for PodProtector state to converge", func() {
 			testutil.ExpectObject[*podseidonv1a1.PodProtector](
 				ctx,
-				setup.PprClient().Watch,
+				env.PprClient().Watch,
 				pprName,
 				aggregatorReconcileTimeout,
-				testutil.MatchPprStatus(1, 0, 0, [2]int32{1, 0}, [2]int32{0, 0}),
+				testutil.MatchPprStatus(1, 0, 0, map[testutil.ClusterId]int32{1: 1, 2: 0}, map[testutil.ClusterId]int32{1: 0, 2: 0}),
 			)
 		})
 
 		ginkgo.By("Validate that the unready pod can be deleted", func() {
-			err := setup.PodClient(0).Delete(ctx, testutil.PodId{Worker: 0, Pod: 0}.PodName(), metav1.DeleteOptions{})
+			err := env.PodClient(1).Delete(ctx, testutil.PodId{Cluster: 1, Pod: 0}.PodName(), metav1.DeleteOptions{})
 			gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 		})
 	})
 
 	ginkgo.It("allows ready but unavailable pod deletion", func(ctx ginkgo.SpecContext) {
 		ginkgo.By("Setup PodProtector and worker pods", func() {
-			setup.CreatePodProtectorAndPods(
+			fixtures.CreatePodProtectorAndPods(
 				ctx,
+				&env,
 				pprName,
-				testutil.PodCounts{1, 0},
+				testutil.PodCounts{1: 1, 2: 0},
 				2, 600,
 				podseidonv1a1.AdmissionHistoryConfig{
 					MaxConcurrentLag:      nil,
@@ -311,31 +323,31 @@ var _ = ginkgo.Describe("Webhook", func() {
 			// Assumption: this test must complete within 10 minutes after time.Now().
 			readyTime := time.Now()
 
-			for _, podId := range (testutil.PodCounts{1, 0}).Iter() {
-				setup.MarkPodAsReady(ctx, podId, readyTime)
+			for _, podId := range (testutil.PodCounts{1: 1, 2: 0}).PodIds() {
+				fixtures.MarkPodAsReady(ctx, &env, podId, readyTime)
 			}
 		})
 
 		ginkgo.By("Wait for PodProtector state to converge", func() {
 			testutil.ExpectObject[*podseidonv1a1.PodProtector](
 				ctx,
-				setup.PprClient().Watch,
+				env.PprClient().Watch,
 				pprName,
 				aggregatorReconcileTimeout,
 				gomega.SatisfyAll(
 					gomega.WithTransform(
 						func(ppr *podseidonv1a1.PodProtector) int32 {
-							return testutil.GetPprCell(ppr, 0).GetOrZero().Aggregation.ReadyReplicas
+							return testutil.GetPprCell(ppr, 1).GetOrZero().Aggregation.ReadyReplicas
 						},
 						gomega.Equal(int32(1)),
 					),
-					testutil.MatchPprStatus(1, 0, 0, [2]int32{1, 0}, [2]int32{0, 0}),
+					testutil.MatchPprStatus(1, 0, 0, map[testutil.ClusterId]int32{1: 1, 2: 0}, map[testutil.ClusterId]int32{1: 0, 2: 0}),
 				),
 			)
 		})
 
 		ginkgo.By("Validate that the unavailable pod can be deleted", func() {
-			err := setup.PodClient(0).Delete(ctx, testutil.PodId{Worker: 0, Pod: 0}.PodName(), metav1.DeleteOptions{})
+			err := env.PodClient(1).Delete(ctx, testutil.PodId{Cluster: 1, Pod: 0}.PodName(), metav1.DeleteOptions{})
 			gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 		})
 	})

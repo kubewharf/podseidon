@@ -79,7 +79,7 @@ replace (
 )
 
 replace (
-	k8s.io/apimachinery => github.com/kubewharf/kubernetes/staging/src/k8s.io/apimachinery v0.0.0-20250527032544-4b83dd839ef1
 	k8s.io/api => github.com/kubewharf/kubernetes/staging/src/k8s.io/api v0.0.0-20250527032544-4b83dd839ef1
+	k8s.io/apimachinery => github.com/kubewharf/kubernetes/staging/src/k8s.io/apimachinery v0.0.0-20250527032544-4b83dd839ef1
 	k8s.io/client-go => github.com/kubewharf/kubernetes/staging/src/k8s.io/client-go v0.0.0-20250527032544-4b83dd839ef1
 )
