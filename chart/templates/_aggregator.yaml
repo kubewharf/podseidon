@@ -20,7 +20,12 @@
 {{- end}}
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["get", "list", "watch"]
+  verbs: [
+    "get", "list", "watch",
+    {{- if .main.Values.aggregator.updateTrigger}}
+    "create", "patch",
+    {{- end}}
+  ]
 {{- end}}
 {{- end}}
 

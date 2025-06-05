@@ -30,6 +30,7 @@ import (
 
 	podseidonv1a1 "github.com/kubewharf/podseidon/apis/v1alpha1"
 
+	"github.com/kubewharf/podseidon/util/iter"
 	"github.com/kubewharf/podseidon/util/optional"
 )
 
@@ -120,9 +121,9 @@ func DoUpdate[T runtime.Object](
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 }
 
-func GetPprCell(ppr *podseidonv1a1.PodProtector, worker WorkerIndex) optional.Optional[podseidonv1a1.PodProtectorCellStatus] {
+func GetPprCell(ppr *podseidonv1a1.PodProtector, cluster ClusterId) optional.Optional[podseidonv1a1.PodProtectorCellStatus] {
 	for _, cell := range ppr.Status.Cells {
-		if cell.CellId == worker.String() {
+		if cell.CellId == cluster.String() {
 			return optional.Some(cell)
 		}
 	}
@@ -131,7 +132,7 @@ func GetPprCell(ppr *podseidonv1a1.PodProtector, worker WorkerIndex) optional.Op
 }
 
 func MatchPprStatus(totalReplicas int32, aggregatedAvailable int32, estimatedAvailable int32,
-	workerTotalReplicas [2]int32, workerAvailableReplicas [2]int32,
+	workerTotalReplicas map[ClusterId]int32, workerAvailableReplicas map[ClusterId]int32,
 ) gomega.OmegaMatcher {
 	return gomega.SatisfyAll(
 		gomega.WithTransform(
@@ -146,30 +147,22 @@ func MatchPprStatus(totalReplicas int32, aggregatedAvailable int32, estimatedAva
 			func(ppr *podseidonv1a1.PodProtector) int32 { return ppr.Status.Summary.EstimatedAvailable },
 			gomega.Equal(estimatedAvailable),
 		),
-		gomega.WithTransform(
-			func(ppr *podseidonv1a1.PodProtector) int32 {
-				return GetPprCell(ppr, 0).GetOrZero().Aggregation.TotalReplicas
-			},
-			gomega.Equal(workerTotalReplicas[0]),
-		),
-		gomega.WithTransform(
-			func(ppr *podseidonv1a1.PodProtector) int32 {
-				return GetPprCell(ppr, 0).GetOrZero().Aggregation.AvailableReplicas
-			},
-			gomega.Equal(workerAvailableReplicas[0]),
-		),
-		gomega.WithTransform(
-			func(ppr *podseidonv1a1.PodProtector) int32 {
-				return GetPprCell(ppr, 1).GetOrZero().Aggregation.TotalReplicas
-			},
-			gomega.Equal(workerTotalReplicas[1]),
-		),
-		gomega.WithTransform(
-			func(ppr *podseidonv1a1.PodProtector) int32 {
-				return GetPprCell(ppr, 1).GetOrZero().Aggregation.AvailableReplicas
-			},
-			gomega.Equal(workerAvailableReplicas[1]),
-		),
+		gomega.SatisfyAll(iter.Map(iter.MapKvs(workerTotalReplicas), func(pair iter.Pair[ClusterId, int32]) gomega.OmegaMatcher {
+			return gomega.WithTransform(
+				func(ppr *podseidonv1a1.PodProtector) int32 {
+					return GetPprCell(ppr, pair.Left).GetOrZero().Aggregation.TotalReplicas
+				},
+				gomega.Equal(pair.Right),
+			)
+		}).CollectSlice()...),
+		gomega.SatisfyAll(iter.Map(iter.MapKvs(workerAvailableReplicas), func(pair iter.Pair[ClusterId, int32]) gomega.OmegaMatcher {
+			return gomega.WithTransform(
+				func(ppr *podseidonv1a1.PodProtector) int32 {
+					return GetPprCell(ppr, pair.Left).GetOrZero().Aggregation.AvailableReplicas
+				},
+				gomega.Equal(pair.Right),
+			)
+		}).CollectSlice()...),
 	)
 }
 

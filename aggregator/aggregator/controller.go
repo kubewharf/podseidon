@@ -286,11 +286,33 @@ func initController(
 	)
 	queue.SetBeforeStart(deps.elector.Get().Await)
 
-	deps.pprInformer.Get().AddPostHandler(func(key pprutil.PodProtectorKey) {
-		queue.EnqueueDelayed(key, jitterAggregationRate(options.aggRateJitter, *deps.defaultConfig.Get().AggregationRate))
+	pprInformer := deps.pprInformer.Get()
+	pprInformer.AddPostHandler(func(key pprutil.PodProtectorKey) {
+		enqueueDelayed(options.aggRateJitter, deps.defaultConfig.Get(), queue, key, pprInformer)
 	})
 
 	return state, nil
+}
+
+func enqueueDelayed(
+	jitter [2]*float64,
+	defaultConfig *defaultconfig.Options,
+	queue worker.Api[pprutil.PodProtectorKey],
+	key pprutil.PodProtectorKey,
+	pprInformer pprutil.IndexedInformer,
+) {
+	pprConfig := optional.None[podseidonv1a1.AdmissionHistoryConfig]()
+	if ppr, err := pprInformer.Get(key); err == nil {
+		pprConfig = optional.Map(
+			ppr,
+			func(ppr *podseidonv1a1.PodProtector) podseidonv1a1.AdmissionHistoryConfig {
+				return ppr.Spec.AdmissionHistoryConfig
+			},
+		)
+	}
+
+	computed := defaultConfig.Compute(pprConfig)
+	queue.EnqueueDelayed(key, jitterAggregationRate(jitter, computed.AggregationRate))
 }
 
 func jitterAggregationRate(jitter [2]*float64, configValue time.Duration) time.Duration {
@@ -521,20 +543,7 @@ func (handler *podEventHandler) handle(ctx context.Context, obj any, stillPresen
 	}
 
 	for nsName := range triggerReconcile {
-		pprConfig := optional.None[podseidonv1a1.AdmissionHistoryConfig]()
-
-		ppr, err := handler.pprInformer.Get(nsName)
-		if err == nil {
-			pprConfig = optional.Map(
-				ppr,
-				func(ppr *podseidonv1a1.PodProtector) podseidonv1a1.AdmissionHistoryConfig {
-					return ppr.Spec.AdmissionHistoryConfig
-				},
-			)
-		}
-
-		computedConfig := handler.defaultConfig.Compute(pprConfig)
-		handler.queue.EnqueueDelayed(nsName, jitterAggregationRate(handler.aggRateJitter, computedConfig.AggregationRate))
+		enqueueDelayed(handler.aggRateJitter, handler.defaultConfig, handler.queue, nsName, handler.pprInformer)
 	}
 }
 

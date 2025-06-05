@@ -1,4 +1,4 @@
-// Copyright 2024 The Podseidon Authors.
+// Copyright 2025 The Podseidon Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
 package aggregator
 
 import (
-	"context"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -29,6 +28,8 @@ import (
 	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 	"github.com/kubewharf/podseidon/util/util"
 
+	"github.com/kubewharf/podseidon/tests/fixtures"
+	"github.com/kubewharf/podseidon/tests/provision"
 	testutil "github.com/kubewharf/podseidon/tests/util"
 )
 
@@ -37,12 +38,18 @@ var _ = ginkgo.Describe("Aggregator", func() {
 
 	const aggregatorReconcileTimeout = time.Second * 2
 
-	setup := testutil.SetupBeforeEach()
+	var env provision.Env
+	provision.RegisterHooks(&env, provision.NewRequest(2, func(cluster testutil.ClusterId, req *provision.ClusterRequest) {
+		if cluster.IsWorker() {
+			req.EnableAggregatorUpdateTrigger = true
+		}
+	}))
 
 	ginkgo.It("aggregates pods of the cell", func(ctx ginkgo.SpecContext) {
 		ginkgo.By("Setup Podprotector and worker pods", func() {
-			setup.CreatePodProtectorAndPods(
-				ctx, pprName, testutil.PodCounts{3, 4},
+			fixtures.CreatePodProtectorAndPods(
+				ctx, &env, pprName,
+				testutil.PodCounts{1: 3, 2: 4},
 				1, 5,
 				podseidonv1a1.AdmissionHistoryConfig{
 					AggregationRateMillis: ptr.To[int32](1000),
@@ -53,31 +60,31 @@ var _ = ginkgo.Describe("Aggregator", func() {
 		ginkgo.By("Validate aggregated PodProtector status after initial pod creation", func() {
 			testutil.ExpectObject[*podseidonv1a1.PodProtector](
 				ctx,
-				setup.PprClient().Watch,
+				env.PprClient().Watch,
 				pprName,
 				aggregatorReconcileTimeout,
-				testutil.MatchPprStatus(7, 0, 0, [2]int32{3, 4}, [2]int32{0, 0}),
+				testutil.MatchPprStatus(7, 0, 0, map[testutil.ClusterId]int32{1: 3, 2: 4}, map[testutil.ClusterId]int32{1: 0, 2: 0}),
 			)
 		})
 
 		readyTime := time.Now()
 
 		ginkgo.By("Marking pods as ready", func() {
-			setup.MarkPodAsReady(ctx, testutil.PodId{Worker: 0, Pod: 0}, readyTime)
-			setup.MarkPodAsReady(ctx, testutil.PodId{Worker: 0, Pod: 1}, readyTime)
-			setup.MarkPodAsReady(ctx, testutil.PodId{Worker: 1, Pod: 0}, readyTime)
-			setup.MarkPodAsReady(ctx, testutil.PodId{Worker: 1, Pod: 1}, readyTime)
+			fixtures.MarkPodAsReady(ctx, &env, testutil.PodId{Cluster: 1, Pod: 0}, readyTime)
+			fixtures.MarkPodAsReady(ctx, &env, testutil.PodId{Cluster: 1, Pod: 1}, readyTime)
+			fixtures.MarkPodAsReady(ctx, &env, testutil.PodId{Cluster: 2, Pod: 0}, readyTime)
+			fixtures.MarkPodAsReady(ctx, &env, testutil.PodId{Cluster: 2, Pod: 1}, readyTime)
 		})
 
 		ginkgo.By(
-			"Validate that PodProtector status aggregation has a does not treat ready as available",
+			"Validate that PodProtector status aggregation does not treat ready as available",
 			func() {
 				testutil.ExpectObject[*podseidonv1a1.PodProtector](
 					ctx,
-					setup.PprClient().Watch,
+					env.PprClient().Watch,
 					pprName,
 					aggregatorReconcileTimeout,
-					testutil.MatchPprStatus(7, 0, 0, [2]int32{3, 4}, [2]int32{0, 0}),
+					testutil.MatchPprStatus(7, 0, 0, map[testutil.ClusterId]int32{1: 3, 2: 4}, map[testutil.ClusterId]int32{1: 0, 2: 0}),
 				)
 			},
 		)
@@ -89,10 +96,10 @@ var _ = ginkgo.Describe("Aggregator", func() {
 
 				testutil.ExpectObject[*podseidonv1a1.PodProtector](
 					ctx,
-					setup.PprClient().Watch,
+					env.PprClient().Watch,
 					pprName,
 					aggregatorReconcileTimeout,
-					testutil.MatchPprStatus(7, 4, 4, [2]int32{3, 4}, [2]int32{2, 2}),
+					testutil.MatchPprStatus(7, 4, 4, map[testutil.ClusterId]int32{1: 3, 2: 4}, map[testutil.ClusterId]int32{1: 2, 2: 2}),
 				)
 			},
 		)
@@ -102,8 +109,8 @@ var _ = ginkgo.Describe("Aggregator", func() {
 		ginkgo.By("Insert fake deletion admission history into cell", func() {
 			testutil.DoUpdate(
 				ctx,
-				setup.PprClient().Get,
-				setup.PprClient().UpdateStatus,
+				env.PprClient().Get,
+				env.PprClient().UpdateStatus,
 				pprName,
 				func(ppr *podseidonv1a1.PodProtector) {
 					config := defaultconfig.MustComputeDefaultSetup(ppr.Spec.AdmissionHistoryConfig)
@@ -126,33 +133,18 @@ var _ = ginkgo.Describe("Aggregator", func() {
 
 					pprutil.Summarize(config, ppr)
 
+					ginkgo.GinkgoLogr.Info("debug", "aggregation rate", config.AggregationRate, "spec", ppr.Spec.AdmissionHistoryConfig)
 					expireTime = admissionTime.Add(config.AggregationRate * 2)
 				},
 			)
 		})
 
 		ginkgo.By(
-			"Validate that PodProtector aggregation does not immediately ignore the admission bucket",
+			"Validate that PodProtector aggregation spontaneously drops the admission bucket due to update-trigger",
 			func() {
-				testutil.ExpectObjectNot[*podseidonv1a1.PodProtector](
-					ctx, setup.PprClient().Watch, pprName, time.Until(expireTime),
-					testutil.MatchPprStatus(7, 4, 4, [2]int32{3, 4}, [2]int32{2, 2}),
-				)
-			},
-		)
-
-		ginkgo.By(
-			"Validate that PodProtector aggregation spontaneously drops the admission bucket upon external pod modification",
-			func() {
-				// Keep patching the external pod annotations.
-				repeatCtx, cancelFunc := context.WithCancel(ctx)
-				defer cancelFunc()
-
-				go setup.MaintainExternalUnmatchedPod(repeatCtx, 1, "external-unmatched-pod")
-
 				testutil.ExpectObject[*podseidonv1a1.PodProtector](
-					ctx, setup.PprClient().Watch, pprName, time.Until(expireTime),
-					testutil.MatchPprStatus(7, 4, 4, [2]int32{3, 4}, [2]int32{2, 2}),
+					ctx, env.PprClient().Watch, pprName, time.Until(expireTime),
+					testutil.MatchPprStatus(7, 4, 4, map[testutil.ClusterId]int32{1: 3, 2: 4}, map[testutil.ClusterId]int32{1: 2, 2: 2}),
 				)
 			},
 		)

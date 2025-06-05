@@ -225,7 +225,9 @@ linters:
       allow-trailing-comment: true
   exclusions:
     rules:
-      - text: 'v1(alpha1)?\.[A-Za-z]+ is missing field' # k8s proto structs are intentionally optional
-        linters: [exhaustruct]
+      - linters: [exhaustruct]
+        text: 'v1(alpha1)?\.[A-Za-z]+ is missing field' # k8s proto structs are intentionally optional
+      - linters: [exhaustruct]
+        text: 'url\.URL is missing fields' # url.URL has many unused fields with safe defaults
       - linters: [revive]
         text: "struct-tag: unknown option 'inline' in JSON tag"

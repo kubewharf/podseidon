@@ -102,6 +102,16 @@ func (v Optional[T]) MustGet(msg string) T {
 	return v.value
 }
 
+// Returns a nil slice if the receiver is `None`.
+// Returns a singleton slice containing the value if the receiver is `Some`.
+func (v Optional[T]) AsSlice() []T {
+	if v.isSome {
+		return []T{v.value}
+	}
+
+	return nil
+}
+
 // Returns true only if the value is present and matches the predicate.
 func (v Optional[T]) IsSomeAnd(fn func(T) bool) bool {
 	return v.isSome && fn(v.value)
