@@ -57,9 +57,9 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.33.1 // indirect
-	k8s.io/apimachinery v0.33.1 // indirect
-	k8s.io/client-go v0.33.1 // indirect
+	k8s.io/api v0.33.2 // indirect
+	k8s.io/apimachinery v0.33.2 // indirect
+	k8s.io/client-go v0.33.2 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	sigs.k8s.io/controller-runtime v0.21.0 // indirect
@@ -79,7 +79,7 @@ replace (
 )
 
 replace (
-	k8s.io/apimachinery => github.com/kubewharf/kubernetes/staging/src/k8s.io/apimachinery v0.0.0-20250527032544-4b83dd839ef1
 	k8s.io/api => github.com/kubewharf/kubernetes/staging/src/k8s.io/api v0.0.0-20250527032544-4b83dd839ef1
+	k8s.io/apimachinery => github.com/kubewharf/kubernetes/staging/src/k8s.io/apimachinery v0.0.0-20250527032544-4b83dd839ef1
 	k8s.io/client-go => github.com/kubewharf/kubernetes/staging/src/k8s.io/client-go v0.0.0-20250527032544-4b83dd839ef1
 )
