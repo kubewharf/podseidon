@@ -6,7 +6,7 @@ toolchain go1.24.2
 
 require (
 	github.com/kubewharf/podseidon/apis v0.0.0
-	k8s.io/apimachinery v0.33.1
+	k8s.io/apimachinery v0.33.2
 	k8s.io/client-go v0.33.1
 )
 
