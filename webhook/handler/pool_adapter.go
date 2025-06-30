@@ -18,6 +18,7 @@ import (
 	"context"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/clock"
@@ -102,14 +103,14 @@ func (adapter PoolAdapter) tryExecute(
 		)
 	}
 
-	ppr, present := pprOptional.Get()
+	originalPpr, present := pprOptional.Get()
 	if !present {
 		return retrybatch.ExecuteResultSuccess(
 			func(int) pprutil.DisruptionResult { return pprutil.DisruptionResultOk },
 		)
 	}
 
-	ppr = ppr.DeepCopy()
+	ppr := originalPpr.DeepCopy()
 
 	config := adapter.defaultConfig.Compute(optional.Some(ppr.Spec.AdmissionHistoryConfig))
 
@@ -170,18 +171,20 @@ func (adapter PoolAdapter) tryExecute(
 
 	pprutil.Summarize(config, ppr)
 
-	if err := adapter.sourceProvider.UpdateStatus(ctx, key.SourceName, ppr); err != nil {
-		if apierrors.IsConflict(err) {
-			return retrybatch.ExecuteResultNeedRetry[pprutil.DisruptionResult](
-				adapter.retryBackoff(),
-			)
-		}
+	if !equality.Semantic.DeepEqual(originalPpr, ppr) {
+		if err := adapter.sourceProvider.UpdateStatus(ctx, key.SourceName, ppr); err != nil {
+			if apierrors.IsConflict(err) {
+				return retrybatch.ExecuteResultNeedRetry[pprutil.DisruptionResult](
+					adapter.retryBackoff(),
+				)
+			}
 
-		return retrybatch.ExecuteResultErr[pprutil.DisruptionResult](errors.TagWrapf(
-			"BatchUpdatePprStatus",
-			err,
-			"unable to update PodProtector status",
-		))
+			return retrybatch.ExecuteResultErr[pprutil.DisruptionResult](errors.TagWrapf(
+				"BatchUpdatePprStatus",
+				err,
+				"unable to update PodProtector status",
+			))
+		}
 	}
 
 	return retrybatch.ExecuteResultSuccess(
