@@ -234,7 +234,7 @@ func ReconcileItem(
 		Name:      key.NsName.Name,
 	}
 
-	needSourceFinalizer := false
+	sourceFinalizerNeedsRemoval := true
 
 	err = iter.FromMap2(
 		reqmts,
@@ -258,7 +258,7 @@ func ReconcileItem(
 				sourceObject,
 				reqmt,
 				currentPpr,
-				&needSourceFinalizer,
+				&sourceFinalizerNeedsRemoval,
 			)
 			if err != nil {
 				action = observer.ActionError
@@ -283,7 +283,7 @@ func ReconcileItem(
 		return err
 	}
 
-	if !needSourceFinalizer && sourceObject != nil {
+	if sourceFinalizerNeedsRemoval && sourceObject != nil {
 		if err := removeSourceFinalizer(ctx, obs, sourceObject, startReconcile); err != nil {
 			return err
 		}
@@ -301,7 +301,7 @@ func tryReconcile(
 	sourceObject resource.SourceObject,
 	reqmt optional.Optional[resource.RequiredProtector],
 	currentPpr optional.Optional[*podseidonv1a1.PodProtector],
-	needSourceFinalizer *bool,
+	sourceFinalizerNeedsRemoval *bool,
 ) (observer.Action, error) {
 	switch {
 	case currentPpr.IsNone() && sourceObject == nil:
@@ -321,7 +321,7 @@ func tryReconcile(
 			pprClient,
 			sourceObject,
 			reqmt,
-			needSourceFinalizer,
+			sourceFinalizerNeedsRemoval,
 		)
 
 	case currentPpr.IsNone() && sourceObject != nil && reqmt.IsNone():
@@ -351,7 +351,7 @@ func tryReconcile(
 			sourceObject,
 			currentPpr,
 			reqmt,
-			needSourceFinalizer,
+			sourceFinalizerNeedsRemoval,
 		)
 
 	case currentPpr.IsSome() && sourceObject != nil && reqmt.IsNone():
@@ -365,23 +365,45 @@ func tryReconcile(
 			ctx,
 			pprClient,
 			currentPpr,
-			needSourceFinalizer,
+			sourceFinalizerNeedsRemoval,
 		)
 	}
 
 	panic("unreachable")
 }
 
+var ErrNoFinalizerInTerminatingSource = errors.TagErrorf(
+	"NoFinalizerInTerminatingSource",
+	"source object is terminating but had no finalizer",
+)
+
 func ensureSourceFinalizer(ctx context.Context,
 	sourceObject resource.SourceObject,
-	needSourceFinalizer *bool,
+	sourceFinalizerNeedsRemoval *bool,
 ) error {
-	*needSourceFinalizer = true
+	// sourceFinalizerNeedsRemoval affects whether source finalizer is explicitly removed after all matched PPR checks.
+	// If source object is already terminating, removeSourceFinalizer does not need to be called,
+	// so this flag should be false in all three cases:
+	// 1. When hadSourceFinalizer is true, since ensureSourceFinalizer is called,
+	//    we don't want it to get removed
+	// 2. When the source finalizer is missing and we do not intend to insert it (due to terminating source object),
+	//    there is no need to remove something that does not exist.
+	// 3. When the source finalizer is missing and we insert it in this function,
+	//    the presence of the source finalizer is intended and should not be removed.
+	*sourceFinalizerNeedsRemoval = false
 
-	if util.FindInSlice(sourceObject.GetFinalizers(), podseidon.GeneratorFinalizer) != -1 {
+	hadSourceFinalizer := util.FindInSlice(sourceObject.GetFinalizers(), podseidon.GeneratorFinalizer) != -1
+	if hadSourceFinalizer {
+		// Case 1: Source finalizer already exists and is intended to be kept.
 		return nil
 	}
 
+	if !sourceObject.GetDeletionTimestamp().IsZero() {
+		// Case 2: Unable to update source finalizer if it is already terminating.
+		return ErrNoFinalizerInTerminatingSource
+	}
+
+	// Case 3: Source finalizer is missing and should be inserted.
 	// Ensure source object is mutable.
 	// It doesn't matter that this function is called multiple times
 	// since multiple RequiredProtectors will reuse the same SourceObject.
@@ -404,9 +426,15 @@ func createProtector(
 	pprClient podseidonv1a1client.PodseidonV1alpha1Interface,
 	sourceObject resource.SourceObject,
 	pprReqmt resource.RequiredProtector,
-	needSourceFinalizer *bool,
+	sourceFinalizerNeedsRemoval *bool,
 ) error {
-	if err := ensureSourceFinalizer(ctx, sourceObject, needSourceFinalizer); err != nil {
+	if err := ensureSourceFinalizer(ctx, sourceObject, sourceFinalizerNeedsRemoval); err != nil {
+		if errors.Is(err, ErrNoFinalizerInTerminatingSource) {
+			// Workload was marked for termination before PodProtector could be created,
+			// so there is no point in protecting it.
+			return nil
+		}
+
 		return errors.TagWrapf("EnsureSourceFinalizer", err, "ensure finalizer in source object")
 	}
 
@@ -430,9 +458,15 @@ func syncProtector(
 	sourceObject resource.SourceObject,
 	current *podseidonv1a1.PodProtector,
 	pprReqmt resource.RequiredProtector,
-	needSourceFinalizer *bool,
+	sourceFinalizerNeedsRemoval *bool,
 ) error {
-	if err := ensureSourceFinalizer(ctx, sourceObject, needSourceFinalizer); err != nil {
+	if err := ensureSourceFinalizer(ctx, sourceObject, sourceFinalizerNeedsRemoval); err != nil {
+		// if errors.Is(err, ErrNoFinalizerInTerminatingSource):
+		// PodProtector already exists, but the finalizer does not exist in the source object.
+		// This either implies a race condition in the informer
+		// or that someone manually removed the finalizer.
+		// In either case this is an unexpected condition, and returning error is the safest action.
+
 		return errors.TagWrapf("EnsureSourceFinalizer", err, "ensure finalizer in source object")
 	}
 
@@ -504,12 +538,15 @@ func deleteProtector(
 	ctx context.Context,
 	pprClient podseidonv1a1client.PodseidonV1alpha1Interface,
 	currentPpr *podseidonv1a1.PodProtector,
-	needSourceFinalizer *bool,
+	sourceFinalizerNeedsRemoval *bool,
 ) error {
-	success := false
+	requiresSourceFinalizer := true
 	defer func() {
-		if !success {
-			*needSourceFinalizer = true
+		if requiresSourceFinalizer {
+			// If we returned early before the PodProtector is finalized and deleted,
+			// the source finalizer must not be removed
+			// since that would prevent the PodProtector from getting deleted too.
+			*sourceFinalizerNeedsRemoval = false
 		}
 	}()
 
@@ -541,8 +578,8 @@ func deleteProtector(
 	}
 
 	// We can remove the source finalizer as long as the PodProtector is marked for deletion.
-	// No need to block the source object to wait for the PodProtector deletion..
-	success = true
+	// No need to block the source object to wait for the PodProtector deletion.
+	requiresSourceFinalizer = false
 
 	return nil
 }
