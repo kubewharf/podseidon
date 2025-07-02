@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -142,6 +143,38 @@ func TestReconcileCreate(t *testing.T) {
 					assert.Contains(t, ppr.Finalizers, podseidon.GeneratorFinalizer)
 					assert.Equal(t, int32(10), ppr.Spec.MinAvailable)
 				}
+			},
+		},
+		expectActions:               []observer.Action{observer.ActionCreatingProtector},
+		expectRemoveSourceFinalizer: false,
+	})
+}
+
+func TestReconcileCreateTerminating(t *testing.T) {
+	t.Parallel()
+
+	testReconcile(t, testReconcileArgs{
+		srcObjects: []*testObject{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         testNamespace,
+					Name:              testObjName,
+					DeletionTimestamp: &metav1.Time{Time: time.Now().Add(-time.Minute)},
+					Finalizers:        []string{"example.com/not-managed-by-podseidon"},
+				},
+				protect: true,
+				spec:    podseidonv1a1.PodProtectorSpec{MinAvailable: 10},
+			},
+		},
+		pprs: []*podseidonv1a1.PodProtector{},
+		expectSrcs: map[types.NamespacedName]checkSrc{
+			{Namespace: testNamespace, Name: testObjName}: func(t *testing.T, src *testObject) {
+				assert.NotContains(t, src.Finalizers, podseidon.GeneratorFinalizer)
+			},
+		},
+		expectPprs: map[types.NamespacedName]checkPpr{
+			{Namespace: testNamespace, Name: testPprName}: func(t *testing.T, ppr *podseidonv1a1.PodProtector) {
+				assert.Nil(t, ppr)
 			},
 		},
 		expectActions:               []observer.Action{observer.ActionCreatingProtector},
