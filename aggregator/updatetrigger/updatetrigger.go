@@ -150,7 +150,7 @@ func spinCreate(ctx context.Context, client *kube.Client, options *Options) erro
 			Namespace:   *options.PodNamespace,
 			Name:        *options.PodName,
 			Labels:      *options.PodLabels,
-			Annotations: *options.PodAnnotations,
+			Annotations: annotations,
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
