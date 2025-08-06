@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.2
 
 require (
-	github.com/daixiang0/gci v0.13.6
+	github.com/daixiang0/gci v0.13.7
 	github.com/itchyny/gojq v0.12.17
 	github.com/segmentio/golines v0.12.2
 	golang.org/x/tools v0.35.0
