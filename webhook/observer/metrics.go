@@ -67,6 +67,7 @@ func ProvideMetrics() component.Declared[Observer] {
 					user      string
 					pprName   string
 					podName   string
+					podCell   string
 				}
 			)
 
@@ -75,8 +76,13 @@ func ProvideMetrics() component.Declared[Observer] {
 			}
 
 			type podInPprTags struct {
+				// The cell that the handled pod is identified to belong to.
+				PodCell string
+				// The namespace of the PodProtector and pod, when by-namespace is enabled.
 				Namespace string
-				User      string
+				// The username deleting the pod, when by-user is enabled.
+				User string
+
 				PodInPprBaseTags
 			}
 
@@ -175,6 +181,7 @@ func ProvideMetrics() component.Declared[Observer] {
 							user:      user,
 							pprName:   arg.PprName,
 							podName:   arg.PodName,
+							podCell:   arg.PodCell,
 						},
 					), util.NoOp
 				},
@@ -182,6 +189,7 @@ func ProvideMetrics() component.Declared[Observer] {
 					ctxValue := ctx.Value(podInPprCtxKey{}).(podInPprCtxValue)
 
 					tags := podInPprTags{
+						PodCell:   ctxValue.podCell,
 						Namespace: ctxValue.namespace,
 						User:      ctxValue.user,
 						PodInPprBaseTags: PodInPprBaseTags{

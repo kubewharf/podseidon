@@ -302,9 +302,11 @@ func (api Api) handlePodInPpr(
 	cellId string,
 ) (_ HandleResult, _canContinue bool) {
 	ctx, cancelFunc := api.observer.StartHandlePodInPpr(ctx, observer.StartHandlePodInPpr{
-		Namespace:        pod.Namespace,
-		PprName:          pprRef.Name,
-		PodName:          pod.Name,
+		Namespace: pod.Namespace,
+		PprName:   pprRef.Name,
+		PodName:   pod.Name,
+		PodCell:   cellId,
+
 		DeleteUserName:   user.Username,
 		DeleteUserGroups: user.Groups,
 	})
