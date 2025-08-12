@@ -22,12 +22,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/clock"
 
 	"github.com/kubewharf/podseidon/util/component"
 	"github.com/kubewharf/podseidon/util/errors"
 	"github.com/kubewharf/podseidon/util/o11y"
+	"github.com/kubewharf/podseidon/util/optional"
 	"github.com/kubewharf/podseidon/util/worker/observer"
 )
 
@@ -54,6 +56,11 @@ func New[QueueItem comparable](
 					"backoff-max",
 					time.Minute,
 					fmt.Sprintf("error exponential backoff max for %s reconciliation", args.Name),
+				),
+				MaxDelayConflict: fs.Duration(
+					"backoff-conflict",
+					time.Millisecond*10,
+					fmt.Sprintf("conflict exponential backoff max for %s reconciliation", args.Name),
 				),
 			}
 		},
@@ -140,9 +147,10 @@ type Args struct {
 }
 
 type Options struct {
-	WorkerCount *int
-	BaseDelay   *time.Duration
-	MaxDelay    *time.Duration
+	WorkerCount      *int
+	BaseDelay        *time.Duration
+	MaxDelay         *time.Duration
+	MaxDelayConflict *time.Duration
 }
 
 type Deps struct {
@@ -241,6 +249,7 @@ func start[QueueItem comparable](
 			state.executor,
 			args.Name,
 			deps.Observer.Get(),
+			optional.Some(*options.MaxDelayConflict).Filter(func(d time.Duration) bool { return d != *options.MaxDelay }),
 		)
 	}
 
@@ -257,6 +266,7 @@ func runWorker[QueueItem comparable](
 	executor Executor[QueueItem],
 	workerName string,
 	obs observer.Observer,
+	conflictBackoff optional.Optional[time.Duration],
 ) {
 	defer wg.Done()
 
@@ -266,7 +276,7 @@ func runWorker[QueueItem comparable](
 			return
 		}
 
-		spinOnce(ctx, queue, queueItem, executor, workerName, obs)
+		spinOnce(ctx, queue, queueItem, executor, workerName, obs, conflictBackoff)
 	}
 }
 
@@ -277,6 +287,7 @@ func spinOnce[QueueItem comparable](
 	executor Executor[QueueItem],
 	workerName string,
 	obs observer.Observer,
+	conflictBackoff optional.Optional[time.Duration],
 ) {
 	defer queue.Done(queueItem)
 
@@ -289,5 +300,16 @@ func spinOnce[QueueItem comparable](
 
 	if err != nil {
 		queue.AddRateLimited(queueItem)
+
+		// Enqueue by both rate-limited delay and constant delay.
+		// The workqueue would deduplicate whichever is greater.
+		// AddRateLimited would not be consumed before this function returns
+		// due to `defer queue.Done` running at the end,
+		// so this is effectively AddAfter(min(conflictBackoff, exponentialBackoff)).
+		if conflictBackoff, hasConflictBackoff := conflictBackoff.Get(); hasConflictBackoff {
+			if apierrors.IsConflict(err) {
+				queue.AddAfter(queueItem, conflictBackoff)
+			}
+		}
 	}
 }
