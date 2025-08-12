@@ -78,9 +78,11 @@ type HttpError struct {
 }
 
 type StartHandlePodInPpr struct {
-	Namespace        string
-	PprName          string
-	PodName          string
+	Namespace string
+	PprName   string
+	PodName   string
+	PodCell   string
+
 	DeleteUserName   string
 	DeleteUserGroups []string
 }
