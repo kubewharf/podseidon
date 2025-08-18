@@ -4,8 +4,8 @@
 Main entrypoint for a component.
 Additional parameters:
   .deployedCluster: the cluster to deploy pods of this component in, either "core" or "worker"
-  .binary: path to main process binary in the image
   .args: args passed to the container process (should include boilerplate args)
+  .binary: path to main process binary in the image, nil to use default image entrypoint
   .env: env vars set for the container process
   .volumes: dictionary of required volumes in BoilerplateVolumes format:
     key: volume name
@@ -78,10 +78,13 @@ Additional parameters:
 name: main
 securityContext: {{toJson .generic.containerSecurityContext}}
 resources: {{toJson .generic.resources}}
-{{- $image := get .main.Values.common.image .component | default dict | deepCopy | merge (deepCopy .main.Values.common.image)}}
+{{- $image := deepCopy .main.Values.common.image | merge (get .main.Values.common.image .component | default dict) }}
 image: {{printf "%s:%s" $image.repository ($image.tag | default .main.Chart.AppVersion) | toJson}}
 imagePullPolicy: {{toJson $image.pullPolicy}}
-command: {{prepend (include "podseidon.boilerplate.args.yaml-array" . | fromYamlArray) .binary | toJson}}
+{{- if .binary}}
+command: [{{toJson .binary}}]
+{{- end}}
+args: {{include "podseidon.boilerplate.args.yaml-array" . | fromYamlArray | toJson}}
 env: [
   {{- range $k, $v := .env}}
   {

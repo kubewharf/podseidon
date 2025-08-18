@@ -7,7 +7,6 @@
 }}
 {{- dict
     "deployedCluster" "core"
-    "binary" "/usr/local/bin/podseidon-webhook"
     "args" (include "podseidon.webhook.args.yaml" $ctx | fromYaml)
     "env" (dict)
     "volumes" (include "podseidon.webhook.volumes.yaml" $ctx | fromYaml)
