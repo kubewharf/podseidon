@@ -200,7 +200,7 @@ func (result DisruptionResult) String() string {
 		return "Retry"
 	case DisruptionResultDenied:
 		return "Denied"
+	default:
+		panic(fmt.Sprintf("unknown enum value %#v", result))
 	}
-
-	panic(fmt.Sprintf("unknown enum value %#v", result))
 }

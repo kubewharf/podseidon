@@ -56,7 +56,6 @@ type Pool[Key comparable, Arg any, Result any] interface {
 type poolImpl[
 	Key comparable, Arg any, Result any,
 	AdapterT Adapter[Key, Arg, Result],
-	syncBarrierT syncbarrier.Interface[Key],
 ] struct {
 	observer observer.Observer
 
@@ -65,7 +64,7 @@ type poolImpl[
 	batchCtxCancel context.CancelFunc
 
 	adapter     Adapter[Key, Arg, Result]
-	syncBarrier syncBarrierT
+	syncBarrier syncbarrier.Interface[Key]
 
 	coldStartDelay            time.Duration
 	batchGoroutineIdleTimeout time.Duration
@@ -90,7 +89,7 @@ func NewPool[Key comparable, Arg any, Result any, AdapterT Adapter[Key, Arg, Res
 	return PoolConfig[Key, Arg, Result]{
 		createPool: func(ctx context.Context) Pool[Key, Arg, Result] {
 			batchCtx, batchCtxCancel := context.WithCancel(ctx)
-			return &poolImpl[Key, Arg, Result, AdapterT, syncbarrier.Empty[Key]]{
+			return &poolImpl[Key, Arg, Result, AdapterT]{
 				observer:                  obs,
 				batchCtx:                  batchCtx,
 				batchCtxCancel:            batchCtxCancel,
@@ -108,15 +107,15 @@ func NewPool[Key comparable, Arg any, Result any, AdapterT Adapter[Key, Arg, Res
 func NewTestingPool[
 	Key comparable, Arg any, Result any,
 	AdapterT Adapter[Key, Arg, Result],
-	BarrierT syncbarrier.Interface[Key],
 ](
+	ctx context.Context,
 	adapter AdapterT,
-	syncBarrier BarrierT,
+	syncBarrier syncbarrier.Interface[Key],
 	coldStartDelay, batchGoroutineIdleTimeout time.Duration,
 ) Pool[Key, Arg, Result] {
-	return &poolImpl[Key, Arg, Result, AdapterT, BarrierT]{
+	return &poolImpl[Key, Arg, Result, AdapterT]{
 		observer:                  o11y.ReflectNoop[observer.Observer](),
-		batchCtx:                  context.Background(),
+		batchCtx:                  ctx,
 		batchCtxCancel:            util.NoOp,
 		adapter:                   adapter,
 		syncBarrier:               syncBarrier,
@@ -146,13 +145,13 @@ type keyHandle[Arg any, Result any] struct {
 	operationCh chan operationRequest[Arg, Result]
 }
 
-func (pool *poolImpl[Key, Arg, Result, AdapterT, syncBarrierT]) StartMonitor(ctx context.Context) {
+func (pool *poolImpl[Key, Arg, Result, AdapterT]) StartMonitor(ctx context.Context) {
 	go pool.observer.InFlightKeys(ctx, observer.InFlightKeys{PoolName: pool.adapter.PoolName()}, func() int {
 		return pool.handles.Size()
 	})
 }
 
-func (pool *poolImpl[Key, Arg, Result, AdapterT, syncBarrierT]) Submit(
+func (pool *poolImpl[Key, Arg, Result, AdapterT]) Submit(
 	ctx context.Context,
 	key Key,
 	arg Arg,
@@ -179,7 +178,7 @@ func (pool *poolImpl[Key, Arg, Result, AdapterT, syncBarrierT]) Submit(
 	}
 	handle.operationCh <- request
 
-	result, _ := util.NotifyOnBlock(pool.syncBarrier, resultCh)
+	result := <-resultCh
 	endSubmit = observer.EndSubmit{
 		RetryCount: result.Retries,
 		Err:        result.Err,
@@ -191,7 +190,7 @@ func (pool *poolImpl[Key, Arg, Result, AdapterT, syncBarrierT]) Submit(
 // Lazily creates the key, and acquires the handle rc.
 //
 // Callers must call handle.rc.Release upon completion.
-func (pool *poolImpl[Key, Arg, Result, AdapterT, syncBarrierT]) acquireLazyHandle(
+func (pool *poolImpl[Key, Arg, Result, AdapterT]) acquireLazyHandle(
 	key Key,
 ) *keyHandle[Arg, Result] {
 	for {
@@ -230,18 +229,17 @@ func (pool *poolImpl[Key, Arg, Result, AdapterT, syncBarrierT]) acquireLazyHandl
 	}
 }
 
-func (pool *poolImpl[_, _, _, _, _]) Close() { pool.batchCtxCancel() }
+func (pool *poolImpl[_, _, _, _]) Close() { pool.batchCtxCancel() }
 
 //revive:disable-next-line:argument-limit // cannot reasonably reduce
 func batchGoroutine[
 	Key comparable, Arg any, Result any,
 	AdapterT Adapter[Key, Arg, Result],
-	syncBarrierT syncbarrier.Interface[Key],
 ](
 	ctx context.Context,
 	obs observer.Observer,
 	adapter AdapterT,
-	syncBarrier syncBarrierT,
+	syncBarrier syncbarrier.Interface[Key],
 	coldStartDelay, batchGoroutineIdleTimeout time.Duration,
 	key Key,
 	handle *keyHandle[Arg, Result],
@@ -259,37 +257,30 @@ func batchGoroutine[
 		default:
 		}
 
-		if util.SelectOrNotifyRRR(
-			syncBarrier,
-			handle.operationCh, func(request operationRequest[Arg, Result], _ bool) iter.Flow {
-				processBatch(ctx, obs, adapter, syncBarrier, coldStartDelay, key, handle.operationCh, request)
-				return iter.Continue
-			},
-			syncBarrier.TimeAfter(batchGoroutineIdleTimeout), func(time.Time, bool) iter.Flow {
-				syncBarrier.PrepareFuseAfterIdle(key)
+		select {
+		case request := <-handle.operationCh:
+			processBatch(ctx, obs, adapter, syncBarrier, coldStartDelay, key, handle.operationCh, request)
+		case <-syncBarrier.TimeAfter(batchGoroutineIdleTimeout):
+			syncBarrier.PrepareFuseAfterIdle(key)
 
-				if !handle.rc.Fuse() {
-					// Someone just acquired the handle. Expect an operationRequest to come in soon.
-					syncBarrier.AfterFuse(key, false)
-					return iter.Continue
-				}
+			if !handle.rc.Fuse() {
+				// Someone just acquired the handle. Expect an operationRequest to come in soon.
+				syncBarrier.AfterFuse(key, false)
+				break
+			}
 
-				syncBarrier.AfterFuse(key, true)
+			syncBarrier.AfterFuse(key, true)
 
-				// Since fusing is successful, there are no more active references to this handle,
-				// and we can gracefully shut down.
+			// Since fusing is successful, there are no more active references to this handle,
+			// and we can gracefully shut down.
 
-				return iter.Break
-			},
-			ctx.Done(), func(util.Empty, bool) iter.Flow {
-				if !handle.rc.Fuse() {
-					// the server is shutting down, so just busy-wait for requests to stop coming in.
-					return iter.Continue
-				}
+			return
+		case <-ctx.Done():
+			if !handle.rc.Fuse() {
+				// the server is shutting down, so just busy-wait for requests to stop coming in.
+				break
+			}
 
-				return iter.Break
-			},
-		).Break() {
 			return
 		}
 	}
@@ -298,12 +289,11 @@ func batchGoroutine[
 func processBatch[
 	Key comparable, Arg any, Result any,
 	AdapterT Adapter[Key, Arg, Result],
-	syncBarrierT syncbarrier.Interface[Key],
 ](
 	ctx context.Context,
 	obs observer.Observer,
 	adapter AdapterT,
-	syncBarrier syncBarrierT,
+	syncBarrier syncbarrier.Interface[Key],
 	coldStartDelay time.Duration,
 	key Key,
 	operationCh <-chan operationRequest[Arg, Result],
@@ -323,33 +313,28 @@ func processBatch[
 	for {
 		retryCount++
 
-		flow := util.SelectOrNotifyRRR(
-			syncBarrier,
-			ctx.Done(), func(util.Empty, bool) iter.Flow {
-				for _, request := range batch {
-					request.resultCh <- errorSubmitResult[Result](
-						request.retries,
-						errors.TagWrapf(
-							"PoolCtxCancel", ctx.Err(), "pool context canceled while waiting for retry batch",
-						),
-					)
-				}
+		flow := iter.Continue
+		select {
+		case <-ctx.Done():
+			for _, request := range batch {
+				request.resultCh <- errorSubmitResult[Result](
+					request.retries,
+					errors.TagWrapf(
+						"PoolCtxCancel", ctx.Err(), "pool context canceled while waiting for retry batch",
+					),
+				)
+			}
 
-				return iter.Break
-			},
-			operationCh, func(request operationRequest[Arg, Result], _ bool) iter.Flow {
-				batch = append(batch, request)
-				return iter.Continue
-			},
-			nextExecute, func(time.Time, bool) iter.Flow {
-				if delay, shouldContinue := executeBatch(ctx, obs, adapter, syncBarrier, key, &batch).Get(); shouldContinue {
-					nextExecute = syncBarrier.TimeAfter(delay)
-					return iter.Continue
-				}
-
-				return iter.Break
-			},
-		)
+			flow = iter.Break
+		case request := <-operationCh:
+			batch = append(batch, request)
+		case <-nextExecute:
+			if delay, shouldContinue := executeBatch(ctx, obs, adapter, syncBarrier, key, &batch).Get(); shouldContinue {
+				nextExecute = syncBarrier.TimeAfter(delay)
+			} else {
+				flow = iter.Break
+			}
+		}
 		if flow.Break() {
 			break
 		}
@@ -361,12 +346,12 @@ func processBatch[
 func executeBatch[
 	Key comparable, Arg any, Result any,
 	AdapterT Adapter[Key, Arg, Result],
-	syncBarrierT syncbarrier.Interface[Key],
 ](
 	ctx context.Context,
 	obs observer.Observer,
 	adapter AdapterT,
-	syncBarrier syncBarrierT,
+	syncBarrier syncbarrier.Interface[Key],
+
 	key Key,
 	batch *[]operationRequest[Arg, Result],
 ) (_nextExecute optional.Optional[time.Duration]) {
@@ -405,11 +390,10 @@ func executeBatch[
 func tryExecuteBatch[
 	Key comparable, Arg any, Result any,
 	AdapterT Adapter[Key, Arg, Result],
-	syncBarrierT syncbarrier.Interface[Key],
 ](
 	ctx context.Context,
 	adapter AdapterT,
-	syncBarrier syncBarrierT,
+	syncBarrier syncbarrier.Interface[Key],
 	key Key,
 	batch *[]operationRequest[Arg, Result],
 ) (optional.Optional[time.Duration], observer.EndExecute) {
@@ -464,7 +448,7 @@ func tryExecuteBatch[
 		util.ClearSlice(batch)
 
 		return optional.None[time.Duration](), endExecute
+	default:
+		panic("unknown execute result variant")
 	}
-
-	panic("unknown execute result variant")
 }

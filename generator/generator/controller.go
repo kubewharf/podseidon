@@ -367,9 +367,9 @@ func tryReconcile(
 			currentPpr,
 			sourceFinalizerNeedsRemoval,
 		)
+	default:
+		panic("unreachable")
 	}
-
-	panic("unreachable")
 }
 
 var ErrNoFinalizerInTerminatingSource = errors.TagErrorf(

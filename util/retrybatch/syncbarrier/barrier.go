@@ -16,16 +16,12 @@ package syncbarrier
 
 import (
 	"time"
-
-	"github.com/kubewharf/podseidon/util/util"
 )
 
 // An internal interface to insert synchronization barriers to the operations of a retrybatch.Pool.
 //
 // Should not be used externally.
 type Interface[Key any] interface {
-	util.BlockNotifier
-
 	TimeAfter(duration time.Duration) <-chan time.Time
 
 	StartCheckCanceled(key Key)
@@ -44,9 +40,6 @@ type Interface[Key any] interface {
 type Empty[Key any] struct{}
 
 func (Empty[Key]) TimeAfter(duration time.Duration) <-chan time.Time { return time.After(duration) }
-
-func (Empty[Key]) OnBlock()   {}
-func (Empty[Key]) OnUnblock() {}
 
 func (Empty[Key]) StartCheckCanceled(Key)  {}
 func (Empty[Key]) FinishCheckCanceled(Key) {}
