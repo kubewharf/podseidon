@@ -7,7 +7,6 @@
 }}
 {{- dict
     "deployedCluster" "core"
-    "binary" "/usr/local/bin/podseidon-aggregator"
     "args" (include "podseidon.aggregator.args.yaml" $ctx | fromYaml)
     "env" (dict)
     "volumes" (include "podseidon.aggregator.volumes.yaml" $ctx | fromYaml)

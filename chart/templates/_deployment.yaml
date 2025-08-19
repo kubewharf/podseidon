@@ -81,7 +81,10 @@ resources: {{toJson .generic.resources}}
 {{- $image := get .main.Values.common.image .component | default dict | deepCopy | merge (deepCopy .main.Values.common.image)}}
 image: {{printf "%s:%s" $image.repository ($image.tag | default .main.Chart.AppVersion) | toJson}}
 imagePullPolicy: {{toJson $image.pullPolicy}}
-command: {{prepend (include "podseidon.boilerplate.args.yaml-array" . | fromYamlArray) .binary | toJson}}
+{{- if .binary}}
+command: [{{toJson .binary}}]
+{{- end}}
+args: {{(include "podseidon.boilerplate.args.yaml-array" . | fromYamlArray | toJson)}}
 env: [
   {{- range $k, $v := .env}}
   {
