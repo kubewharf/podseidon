@@ -7,7 +7,6 @@
 }}
 {{- dict
     "deployedCluster" "core"
-    "binary" "/usr/local/bin/podseidon-generator"
     "args" (include "podseidon.generator.args.yaml" $ctx | fromYaml)
     "env" (dict)
     "volumes" (include "podseidon.generator.volumes.yaml" $ctx | fromYaml)
