@@ -66,6 +66,7 @@ func (adapter PoolAdapter) Execute(
 
 	result := adapter.tryExecute(ctx, key, args)
 
+	//revive:disable-next-line:enforce-switch-style
 	switch result.Variant {
 	case retrybatch.ExecuteResultVariantSuccess:
 		adapter.observer.EndExecuteRetrySuccess(

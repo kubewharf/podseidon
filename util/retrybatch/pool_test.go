@@ -16,9 +16,9 @@ package retrybatch_test
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -49,9 +49,8 @@ const (
 )
 
 type TestAdapter struct {
-	t       *testing.T
-	clk     *clocktesting.FakeClock
-	blockWg *sync.WaitGroup
+	t   *testing.T
+	clk *clocktesting.FakeClock
 
 	nextExec atomic.Pointer[Execution]
 
@@ -69,16 +68,9 @@ type hooks struct {
 	afterHandleAcquire   func(Key)
 }
 
-func (adapter *TestAdapter) step(duration time.Duration, expectedBlock int) {
-	if adapter.blockWg != nil {
-		adapter.blockWg.Add(expectedBlock)
-	}
-
+func (adapter *TestAdapter) step(duration time.Duration) {
 	adapter.clk.Step(duration + time.Nanosecond)
-
-	if adapter.blockWg != nil {
-		adapter.blockWg.Wait()
-	}
+	synctest.Wait()
 }
 
 type Execution struct {
@@ -106,7 +98,7 @@ func (adapter *TestAdapter) Execute(
 	assert.Equal(adapter.t, exec.expectKey, key)
 	assert.Len(adapter.t, args, exec.expectArgsLen)
 
-	util.NotifyOnBlock(adapter, adapter.TimeAfter(exec.latency))
+	<-adapter.TimeAfter(exec.latency)
 
 	if exec.retErr != nil {
 		return retrybatch.ExecuteResultErr[Result](exec.retErr)
@@ -130,14 +122,6 @@ func (adapter *TestAdapter) Execute(
 func (adapter *TestAdapter) TimeAfter(duration time.Duration) <-chan time.Time {
 	return adapter.clk.After(duration)
 }
-
-func (adapter *TestAdapter) OnBlock() {
-	if adapter.blockWg != nil {
-		adapter.blockWg.Done()
-	}
-}
-
-func (*TestAdapter) OnUnblock() {}
 
 func (adapter *TestAdapter) StartCheckCanceled(key Key) {
 	if adapter.startCheckCanceled != nil {
@@ -187,16 +171,16 @@ func (adapter *TestAdapter) AfterHandleAcquire(key Key) {
 	}
 }
 
-func newTestingPool(t *testing.T) (retrybatch.Pool[Key, Arg, Result], *TestAdapter) {
+func newTestingPool(ctx context.Context, t *testing.T) (retrybatch.Pool[Key, Arg, Result], *TestAdapter) {
 	adapter := &TestAdapter{
 		t:        t,
 		clk:      clocktesting.NewFakeClock(time.Time{}),
-		blockWg:  new(sync.WaitGroup),
 		nextExec: atomic.Pointer[Execution]{},
 		hooks:    util.Zero[hooks](),
 	}
 
 	return retrybatch.NewTestingPool(
+		ctx,
 		adapter,
 		adapter,
 		testColdStartDelay,
@@ -205,29 +189,36 @@ func newTestingPool(t *testing.T) (retrybatch.Pool[Key, Arg, Result], *TestAdapt
 }
 
 func TestSingleRetry(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, testSingleRetryInBubble)
+}
+
+func testSingleRetryInBubble(t *testing.T) {
 	const (
 		executeLatency = time.Second * 2
 		retryLatency   = time.Second * 4
 	)
 
-	t.Parallel()
+	defer synctest.Wait()
 
-	pool, adapter := newTestingPool(t)
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+
+	pool, adapter := newTestingPool(ctx, t)
 
 	submitReturned := make(chan util.Empty)
-	adapter.blockWg = new(sync.WaitGroup)
 
 	go func(initialSetup <-chan time.Time) {
 		<-initialSetup // wait for blockWg to set up first
 
-		result, err := pool.Submit(context.Background(), key1, 1)
+		result, err := pool.Submit(ctx, key1, 1)
 		assert.NoError(t, err)
 		assert.Equal(t, admittedResult, result)
 
 		close(submitReturned)
 	}(adapter.TimeAfter(time.Nanosecond))
 
-	adapter.step(0, 2)
+	adapter.step(0)
 
 	// Do not set nextExec until this point, after which coldStartDelay elapsed and execution starts.
 	adapter.nextExec.Store(&Execution{
@@ -239,12 +230,12 @@ func TestSingleRetry(t *testing.T) {
 		retErr:          nil,
 	})
 
-	adapter.step(testColdStartDelay, 1)
+	adapter.step(testColdStartDelay)
 	// At this point, execution started, so nextExec should be nil.
 	assert.Eventually(t, func() bool { return adapter.nextExec.Load() == nil }, time.Second, time.Millisecond)
 	// We keep it as nil since a retry is not expected until retryLatency later.
 
-	adapter.step(executeLatency, 1)
+	adapter.step(executeLatency)
 	// The batch is now waiting for the retry backoff.
 	assert.True(t, adapter.nextExec.CompareAndSwap(nil, &Execution{
 		expectKey:       key1,
@@ -255,12 +246,12 @@ func TestSingleRetry(t *testing.T) {
 		retErr:          nil,
 	}))
 
-	adapter.step(retryLatency, 1)
+	adapter.step(retryLatency)
 	// Second execution started, waiting for submit to return soon.
 	require.True(t, util.TryRecv(submitReturned).NoData)
 	assert.Nil(t, adapter.nextExec.Load())
 
-	adapter.step(executeLatency, 1)
+	adapter.step(executeLatency)
 
 	_, chOpen := <-submitReturned
 	assert.False(t, chOpen)
@@ -278,21 +269,20 @@ func doSingleExecute(adapter *TestAdapter) {
 		retErr:          nil,
 	})
 
-	adapter.step(0, 2)
-	adapter.step(testColdStartDelay, 1)
-	adapter.step(singleExecuteLatency, 1)
+	adapter.step(0)
+	adapter.step(testColdStartDelay)
+	adapter.step(singleExecuteLatency)
 }
 
-func poolWithOneRun(t *testing.T) (retrybatch.Pool[Key, Arg, Result], *TestAdapter) {
-	pool, adapter := newTestingPool(t)
-	adapter.blockWg = new(sync.WaitGroup)
+func poolWithOneRun(ctx context.Context, t *testing.T) (retrybatch.Pool[Key, Arg, Result], *TestAdapter) {
+	pool, adapter := newTestingPool(ctx, t)
 
 	firstSubmitDone := make(chan util.Empty)
 
 	go func(initialSetup <-chan time.Time) {
 		<-initialSetup
 
-		result, err := pool.Submit(context.Background(), key1, 1)
+		result, err := pool.Submit(ctx, key1, 1)
 		assert.NoError(t, err)
 		assert.Equal(t, admittedResult, result)
 
@@ -308,8 +298,16 @@ func poolWithOneRun(t *testing.T) (retrybatch.Pool[Key, Arg, Result], *TestAdapt
 
 func TestBatchGoroutineAbortFuse(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, testBatchGoroutineAbortFuseInBubble)
+}
 
-	pool, adapter := poolWithOneRun(t)
+func testBatchGoroutineAbortFuseInBubble(t *testing.T) {
+	defer synctest.Wait()
+
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+
+	pool, adapter := poolWithOneRun(ctx, t)
 
 	canTryFuse := make(chan util.Empty)
 	preparingFuse := make(chan util.Empty)
@@ -322,6 +320,7 @@ func TestBatchGoroutineAbortFuse(t *testing.T) {
 
 	adapter.clk.Step(time.Minute) // this will trigger prepareFuseAfterIdle
 	<-preparingFuse
+	synctest.Wait()
 
 	acquiredHandle := make(chan util.Empty)
 	adapter.hooks.afterHandleAcquire = func(key Key) {
@@ -332,7 +331,7 @@ func TestBatchGoroutineAbortFuse(t *testing.T) {
 	submitDone := make(chan util.Empty)
 	go func() {
 		result, err := pool.Submit(
-			context.Background(),
+			ctx,
 			key1,
 			2,
 		) // this will trigger afterHandleAcquire

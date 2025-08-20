@@ -63,9 +63,9 @@ func (variant ExecuteResultVariant) String() string {
 		return "NeedRetry"
 	case ExecuteResultVariantErr:
 		return "Err"
+	default:
+		panic("invalid variant")
 	}
-
-	panic("invalid variant")
 }
 
 const (

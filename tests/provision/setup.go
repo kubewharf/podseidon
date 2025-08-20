@@ -772,6 +772,7 @@ func mergeTraces(traces []*jaegerjson.Trace) *jaegerjson.Trace {
 		for _, span := range trace.Spans {
 			var pk processKey
 			for _, tag := range span.Tags {
+				//revive:disable-next-line:enforce-switch-style
 				switch tag.Key {
 				case "cluster":
 					pk.cluster, _ = tag.Value.(string)

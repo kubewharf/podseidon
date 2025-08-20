@@ -14,7 +14,7 @@ SETUP_SSH:
     RUN git config --global url."git@github.com:".insteadOf "https://github.com/"
 
 golang-base:
-    ARG golang_image='golang:1.24-alpine3.21'
+    ARG golang_image='golang:1.25-alpine3.22'
     FROM ${golang_image}
 
     ARG GOPROXY='https://proxy.golang.org,direct'
@@ -146,7 +146,7 @@ build-base:
     RUN --ssh cd util && go mod download
 
 runtime:
-    ARG runtime_image='alpine:3.21'
+    ARG runtime_image='alpine:3.22'
     FROM ${runtime_image}
 
 build-bin:
@@ -244,7 +244,7 @@ tidy:
     END
 
 lint:
-    ARG golangci_lint_docker_image='golangci/golangci-lint:v2.0.2-alpine'
+    ARG golangci_lint_docker_image='golangci/golangci-lint:v2.4.0-alpine'
     FROM ${golangci_lint_docker_image}
 
     ARG GOPROXY='https://proxy.golang.org,direct'

@@ -303,6 +303,7 @@ func allocatePort() (uint16, error) {
 		}
 
 		// Test if this port is actually usable
+		//nolint:noctx // this listener is closed locally, no need for context
 		ln, err := net.Listen("tcp", net.JoinHostPort("", fmt.Sprint(port)))
 		if errors.Is(err, syscall.EADDRINUSE) {
 			continue
