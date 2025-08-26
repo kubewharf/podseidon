@@ -7,7 +7,7 @@ toolchain go1.24.2
 require (
 	github.com/daixiang0/gci v0.13.7
 	github.com/itchyny/gojq v0.12.17
-	github.com/segmentio/golines v0.12.2
+	github.com/segmentio/golines v0.13.0
 	golang.org/x/tools v0.36.0
 	k8s.io/code-generator v0.33.1
 	mvdan.cc/gofumpt v0.8.0
@@ -15,8 +15,8 @@ require (
 )
 
 require (
-	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
-	github.com/alecthomas/units v0.0.0-20231202071711-9a357b53e9c9 // indirect
+	github.com/alecthomas/kingpin/v2 v2.4.0 // indirect
+	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b // indirect
 	github.com/dave/dst v0.27.3 // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
@@ -28,13 +28,12 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/itchyny/timefmt-go v0.1.6 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/onsi/gomega v1.38.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
@@ -42,6 +41,7 @@ require (
 	github.com/spf13/pflag v1.0.7 // indirect
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/xhit/go-str2duration/v2 v2.1.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
@@ -52,7 +52,6 @@ require (
 	golang.org/x/term v0.34.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/tools/go/packages/packagestest v0.1.1-deprecated // indirect
-	gopkg.in/alecthomas/kingpin.v2 v2.2.6 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
