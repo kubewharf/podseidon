@@ -9,7 +9,7 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/puzpuzpuz/xsync/v3 v3.5.1
 	github.com/spf13/pflag v1.0.7
-	github.com/stretchr/testify v1.11.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948
 	k8s.io/api v0.33.1
 	k8s.io/apimachinery v0.33.1
