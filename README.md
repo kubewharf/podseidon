@@ -14,13 +14,13 @@ high scalability, disaster tolerance and multi-cluster support.
 ## Why?
 
 When a user workload enters the Kubernetes control plane,
-it has to go through many steps before the pods are finally processed by the kubelet &mbsp;
+it has to go through many steps before the pods are finally processed by the kubelet &mdash;
 deployment controller, replicaset controller, multi-cluster management, CD pipelines,
 and probably a lot of other asynchronous controllers e.g. evictions from reschedulers,
 along with the common dependencies such as kube-apiserver and etcd.
 User services may be disrupted if anything goes wrong in this long chain of events.
 
-Kubernetes is self-healing and eventually consistent &mbsp;
+Kubernetes is self-healing and eventually consistent &mdash;
 if something fails, it will *eventually* work again.
 But how long is *eventually*?
 From the perspective of control plane stability,
