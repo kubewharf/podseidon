@@ -1,9 +1,12 @@
 version: 2
 updates:
+  - package-ecosystem: github-actions
+    schedule:
+      interval: monthly
   - package-ecosystem: gomod
     directory: /tools
     schedule:
-      interval: weekly
+      interval: monthly
   - package-ecosystem: gomod
     directories:
       - /apis
@@ -15,7 +18,7 @@ updates:
       - /allinone
       - /tests
     schedule:
-      interval: weekly
+      interval: monthly
     ignore:
       # k8s.io/apimachinery and k8s.io/api updates always come with k8s.io/client-go updates
       - dependency-name: k8s.io/apimachinery
