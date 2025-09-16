@@ -13,7 +13,7 @@ jobs:
       contents: read # content write is through explicit SSH remote in the last step
     if: ${{ startsWith(github.event.pull_request.head.ref, 'dependabot/go_modules/')}}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{github.event.pull_request.head.ref}}
           persist-credentials: false
