@@ -29,7 +29,7 @@ But due to the declarative nature of Kubernetes,
 it is very easy for an accidental operation
 to propagate its impact before humans can respond to it.
 
-Podseidon provides an end-to-end safey net to minimize the risk:
+Podseidon provides an end-to-end safety net to minimize the risk:
 if a workload request declares a requirement of *n* available pods,
 the control plane can never disrupt the service beyond the minimum *n* pods.
 
