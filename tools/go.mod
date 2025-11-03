@@ -9,7 +9,7 @@ require (
 	github.com/itchyny/gojq v0.12.17
 	github.com/segmentio/golines v0.13.0
 	golang.org/x/tools v0.38.0
-	k8s.io/code-generator v0.34.0
+	k8s.io/code-generator v0.34.1
 	mvdan.cc/gofumpt v0.9.2
 	sigs.k8s.io/controller-tools v0.19.0
 )
@@ -59,10 +59,8 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.34.1 // indirect
-	k8s.io/apiextensions-apiserver v0.34.0 // indirect
+	k8s.io/apiextensions-apiserver v0.34.1 // indirect
 	k8s.io/apimachinery v0.34.1 // indirect
-	k8s.io/client-go v0.34.1 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250604051438-85fd79dbfd9f // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397 // indirect
