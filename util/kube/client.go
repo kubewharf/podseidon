@@ -48,41 +48,7 @@ type Client struct {
 var NewClient = component.Declare(
 	func(args ClientArgs) string { return fmt.Sprintf("%s-kube", args.ClusterName) },
 	func(args ClientArgs, fs *flag.FlagSet) ClientOptions {
-		return ClientOptions{
-			kubeconfigPath: fs.String(
-				"config",
-				"",
-				fmt.Sprintf("path to %s cluster kubeconfig file", args.ClusterName),
-			),
-			masterUrl: fs.String(
-				"master",
-				"",
-				fmt.Sprintf("URL to %s cluster apiserver", args.ClusterName),
-			),
-			TargetNamespace: fs.String(
-				"target-namespace",
-				metav1.NamespaceAll,
-				fmt.Sprintf(
-					"namespaces accessible in %s cluster (empty to match all)",
-					args.ClusterName,
-				),
-			),
-			impersonateUsername: fs.String(
-				"impersonate-username",
-				"",
-				"username to impersonate as",
-			),
-			impersonateUid: fs.String("impersonate-uid", "", "UID to impersonate as"),
-			impersonateGroups: utilflag.StringSlice(
-				fs,
-				"impersonate-groups",
-				[]string{},
-				"comma-separated user groups to impersonate as",
-			),
-			qps:       fs.Float64("qps", float64(rest.DefaultQPS), "client QPS (for each clientset)"),
-			burst:     fs.Int("burst", rest.DefaultBurst, "client burst (for each clientset)"),
-			userAgent: fs.String("user-agent", "podseidon", "user agent for the kube client"),
-		}
+		return NewClientOptions(args.ClusterName, fs)
 	},
 	func(_ ClientArgs, requests *component.DepRequests) ClientDeps {
 		component.DepPtr(requests, kubemetrics.NewComp(kubemetrics.CompArgs{}))
@@ -90,30 +56,17 @@ var NewClient = component.Declare(
 	},
 	func(_ context.Context, _ ClientArgs, options ClientOptions, _ ClientDeps) (*ClientState, error) {
 		restConfig, err := clientcmd.BuildConfigFromFlags(
-			*options.masterUrl,
-			*options.kubeconfigPath,
+			*options.MasterUrl,
+			*options.KubeconfigPath,
 		)
 		if err != nil {
 			return nil, errors.TagWrapf("BuildConfig", err, "build rest config from arguments")
 		}
 
-		if *options.impersonateUsername != "" {
-			restConfig.Impersonate.UserName = *options.impersonateUsername
-		}
-		if *options.impersonateUid != "" {
-			restConfig.Impersonate.UID = *options.impersonateUid
-		}
-		if len(*options.impersonateGroups) > 0 {
-			restConfig.Impersonate.Groups = *options.impersonateGroups
-		}
-
-		restConfig.QPS = float32(*options.qps)
-		restConfig.Burst = *options.burst
+		options.GlobalClientOptions.PatchRestConfig(restConfig)
 
 		// Accept protobuf for better pod list performance
 		restConfig.AcceptContentTypes = "application/vnd.kubernetes.protobuf,application/json"
-
-		rest.AddUserAgent(restConfig, *options.userAgent)
 
 		kubeClientSet, err := kubernetes.NewForConfig(restConfig)
 		if err != nil {
@@ -156,18 +109,83 @@ type ClientArgs struct {
 }
 
 type ClientOptions struct {
-	kubeconfigPath  *string
-	masterUrl       *string
+	KubeconfigPath  *string
+	MasterUrl       *string
 	TargetNamespace *string
 
-	impersonateUsername *string
-	impersonateUid      *string
-	impersonateGroups   *[]string
+	GlobalClientOptions
+}
 
-	qps   *float64
-	burst *int
+type GlobalClientOptions struct {
+	ImpersonateUsername *string
+	ImpersonateUid      *string
+	ImpersonateGroups   *[]string
 
-	userAgent *string
+	Qps   *float64
+	Burst *int
+
+	UserAgent *string
+}
+
+func NewClientOptions(clusterName ClusterName, fs *flag.FlagSet) ClientOptions {
+	return ClientOptions{
+		KubeconfigPath: fs.String(
+			"config",
+			"",
+			fmt.Sprintf("path to %s cluster kubeconfig file", clusterName),
+		),
+		MasterUrl: fs.String(
+			"master",
+			"",
+			fmt.Sprintf("URL to %s cluster apiserver", clusterName),
+		),
+		TargetNamespace: fs.String(
+			"target-namespace",
+			metav1.NamespaceAll,
+			fmt.Sprintf(
+				"namespaces accessible in %s cluster (empty to match all)",
+				clusterName,
+			),
+		),
+		GlobalClientOptions: NewGlobalClientOptions(fs),
+	}
+}
+
+func NewGlobalClientOptions(fs *flag.FlagSet) GlobalClientOptions {
+	return GlobalClientOptions{
+		ImpersonateUsername: fs.String(
+			"impersonate-username",
+			"",
+			"username to impersonate as",
+		),
+		ImpersonateUid: fs.String("impersonate-uid", "", "UID to impersonate as"),
+		ImpersonateGroups: utilflag.StringSlice(
+			fs,
+			"impersonate-groups",
+			[]string{},
+			"comma-separated user groups to impersonate as",
+		),
+		Qps:       fs.Float64("qps", float64(rest.DefaultQPS), "client QPS (for each clientset)"),
+		Burst:     fs.Int("burst", rest.DefaultBurst, "client burst (for each clientset)"),
+		UserAgent: fs.String("user-agent", "podseidon", "user agent for the kube client"),
+	}
+}
+
+func (options *GlobalClientOptions) PatchRestConfig(restConfig *rest.Config) {
+	if *options.ImpersonateUsername != "" {
+		restConfig.Impersonate.UserName = *options.ImpersonateUsername
+	}
+	if *options.ImpersonateUid != "" {
+		restConfig.Impersonate.UID = *options.ImpersonateUid
+	}
+	if len(*options.ImpersonateGroups) > 0 {
+		restConfig.Impersonate.Groups = *options.ImpersonateGroups
+	}
+
+	restConfig.QPS = float32(*options.Qps)
+	restConfig.Burst = *options.Burst
+
+	rest.AddUserAgent(restConfig, *options.UserAgent)
 }
 
 type ClientDeps struct{}

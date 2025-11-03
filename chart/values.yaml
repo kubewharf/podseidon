@@ -205,6 +205,19 @@ webhook:
   # - {by-cell: [list of cell names as strings]}
   requiresPodName: "never"
 
+  # Whether to handle eviction requests.
+  handleEviction: true
+  # Determines how to get a pod object from a cell name.
+  # This is only required if handleEviction is true, and only runs when processing eviction requests.
+  workerProvider:
+    # Allowed values:
+    # - "single": all requests belong to the same Kubernetes cluster.
+    type: single
+    # Configuration if type: "single"
+    single:
+      # Cluster config to the only worker cluster
+      cluster: *cluster
+
   pathPrefix: "" # Mandatory path prefix in webhook requests, e.g. `/podseidon`.
   # If host is nonempty, apiserver will use this path to access webhook instances instead of Kubernetes service discovery.
   host: "" # https://example.net:8843/path

@@ -37,6 +37,7 @@ import (
 	generatorobserver "github.com/kubewharf/podseidon/generator/observer"
 	"github.com/kubewharf/podseidon/generator/resource"
 	"github.com/kubewharf/podseidon/generator/resource/deployment"
+	"github.com/kubewharf/podseidon/webhook/cellclient"
 	"github.com/kubewharf/podseidon/webhook/handler"
 	webhookobserver "github.com/kubewharf/podseidon/webhook/observer"
 	webhookserver "github.com/kubewharf/podseidon/webhook/server"
@@ -69,5 +70,6 @@ func main() {
 		component.RequireDep(webhookserver.New(webhookserver.Args{})),
 		pprutil.RequireSingleSourceProvider(pprutil.SingleSourceProviderArgs{ClusterName: "core"}, true),
 		handler.DefaultRequiresPodNameImpls,
+		cellclient.DefaultImpls,
 	)
 }

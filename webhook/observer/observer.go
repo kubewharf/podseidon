@@ -62,15 +62,38 @@ type RequestComplete struct {
 type RequestStatus string
 
 const (
-	RequestStatusUnmatched          = RequestStatus("Unmatched")
-	RequestStatusNotRelevant        = RequestStatus("NotRelevant")
+	// Subject pod does not match any PodProtector.
+	RequestStatusUnmatched = RequestStatus("Unmatched")
+	// The admission review involves a resource not handled by Podseidon.
+	RequestStatusNotRelevant = RequestStatus("NotRelevant")
+	// The subject pod is already terminating and further deletion has no effect.
 	RequestStatusAlreadyTerminating = RequestStatus("AlreadyTerminating")
-	RequestStatusAlreadyUnready     = RequestStatus("AlreadyUnready")
-	RequestStatusStillUnavailable   = RequestStatus("StillUnavailable")
-	RequestStatusAdmittedAll        = RequestStatus("AdmittedAll")
-	RequestStatusRetryAdvised       = RequestStatus("RetryAdvised")
-	RequestStatusRejected           = RequestStatus("Rejected")
-	RequestStatusError              = RequestStatus("Error")
+	// The subject pod is already unready and deletion does not disrupt any PodProtector quota.
+	RequestStatusAlreadyUnready = RequestStatus("AlreadyUnready")
+	// The subject pod has not reached minReadySeconds of a matched PodProtector
+	// and deletion does not disrupt its quota.
+	//
+	// This status is only used in HandlePodInPpr.
+	// AdmittedAll is returned instead for the HttpRequest status.
+	RequestStatusStillUnavailable = RequestStatus("StillUnavailable")
+	// The request matches more than one PodProtector,
+	// all of which allows the request to proceed,
+	// either because minReadySeconds has not been reached
+	// or because the new disruption can be and has been recorded into the PodProtector's status.
+	RequestStatusAdmittedAll = RequestStatus("AdmittedAll")
+	// The request has been rejected by a PodProtector
+	// because it violates its estimated availability,
+	// but the aggregated availability is not violated.
+	RequestStatusRetryAdvised = RequestStatus("RetryAdvised")
+	// The subject pod has been rejected by a PodProtector
+	// because it violates its aggregated availability.
+	RequestStatusRejected = RequestStatus("Rejected")
+	// An unclassified error has occurred while processing the request.
+	// This may be due to a webhook internal error or due to an invalid request.
+	RequestStatusError = RequestStatus("Error")
+	// The request is an eviction request,
+	// but the pod to be evicted cannot be found in the apiserver cache.
+	RequestStatusNotFound = RequestStatus("NotFound")
 )
 
 type HttpError struct {

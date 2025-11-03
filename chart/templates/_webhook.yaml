@@ -2,6 +2,14 @@
 
 {{- define "podseidon.webhook.rbac-rules.yaml-array"}}
 {{- if .main.Values.release.core}}
+{{- include "podseidon.webhook.rbac-rules-core.yaml-array" .}}
+{{- end}}
+{{- if .main.Values.release.worker}}
+{{- include "podseidon.webhook.rbac-rules-worker.yaml-array" .}}
+{{- end}}
+{{- end}}
+
+{{- define "podseidon.webhook.rbac-rules-core.yaml-array"}}
 - apiGroups: [""]
   resources: ["events"]
   verbs: ["get", "watch", "create", "update", "patch"]
@@ -11,6 +19,13 @@
 - apiGroups: ["podseidon.kubewharf.io"]
   resources: ["podprotectors/status"]
   verbs: ["update"]
+{{- end}}
+
+{{- define "podseidon.webhook.rbac-rules-worker.yaml-array"}}
+{{- if .main.Values.webhook.handleEviction}}
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get"]
 {{- end}}
 {{- end}}
 
@@ -67,6 +82,22 @@ webhook-requires-pod-name: {{toJson $requiresPodName}}
 webhook-requires-pod-name: by-cell
 webhook-requires-pod-name.by-cell-filter: {{get $requiresPodName "by-cell" | toJson}}
 {{- end}}
+
+{{- if .main.Values.webhook.handleEviction}}
+{{- $provider := .main.Values.webhook.workerProvider}}
+webhook-worker-client-provider: {{toJson $provider.type}}
+
+{{- if $provider.type | eq "single"}}
+{{dict
+    "component" .component
+    "config" $provider.single.cluster
+    "volumeName" (printf "%s-webhook-single-worker-cluster" .main.Release.Name)
+    "argPrefix" "webhook-worker-client-provider.single"
+  | deepCopy | merge (deepCopy .) | include "podseidon.kubeconfig.args.yaml"}}
+{{- end}}
+{{- else}}
+webhook-worker-client-provider: "none"
+{{- end}}
 {{- end}}
 
 {{- define "podseidon.webhook.env.yaml"}}
@@ -118,6 +149,13 @@ webhooks:
         operations: ["DELETE"]
         resources: ["pods"]
         scope: Namespaced
+      {{- if .main.Values.webhook.handleEviction}}
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods/eviction"]
+        scope: Namespaced
+      {{- end}}
     clientConfig:
       {{- if .main.Values.webhook.tls.custom}}
       caBundle: {{.main.Values.webhook.tls.cert | b64enc | toJson}}
