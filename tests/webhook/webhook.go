@@ -15,11 +15,14 @@
 package webhook
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -47,68 +50,77 @@ var _ = ginkgo.Describe("Webhook", func() {
 		}
 	}))
 
-	ginkgo.It("allows normal deletion and rejects extra deletions", func(ctx ginkgo.SpecContext) {
-		ginkgo.By("Setup PodProtector and worker pods", func() {
-			fixtures.CreatePodProtectorAndPods(
-				ctx, &env, pprName,
-				testutil.PodCounts{1: 3, 2: 4},
-				5, 0,
-				podseidonv1a1.AdmissionHistoryConfig{
-					MaxConcurrentLag:      nil,
-					CompactThreshold:      ptr.To[int32](100),
-					AggregationRateMillis: ptr.To[int32](2000),
-				},
-			)
-		})
+	for _, dm := range deletionMethods {
+		ginkgo.It(
+			fmt.Sprintf("allows normal %s and rejects extra %s", dm.SingularNoun(), dm.PluralNoun()),
+			func(ctx ginkgo.SpecContext) {
+				ginkgo.By("Setup PodProtector and worker pods", func() {
+					fixtures.CreatePodProtectorAndPods(
+						ctx, &env, pprName,
+						testutil.PodCounts{1: 3, 2: 4},
+						5, 0,
+						podseidonv1a1.AdmissionHistoryConfig{
+							MaxConcurrentLag:      nil,
+							CompactThreshold:      ptr.To[int32](100),
+							AggregationRateMillis: ptr.To[int32](2000),
+						},
+					)
+				})
 
-		ginkgo.By("Mark pods as ready", func() {
-			readyTime := time.Now()
+				ginkgo.By("Mark pods as ready", func() {
+					readyTime := time.Now()
 
-			for _, podId := range (testutil.PodCounts{1: 3, 2: 4}).PodIds() {
-				fixtures.MarkPodAsReady(ctx, &env, podId, readyTime)
-			}
-		})
+					for _, podId := range (testutil.PodCounts{1: 3, 2: 4}).PodIds() {
+						fixtures.MarkPodAsReady(ctx, &env, podId, readyTime)
+					}
+				})
 
-		ginkgo.By("Wait for PodProtector state to converge", func() {
-			testutil.ExpectObject[*podseidonv1a1.PodProtector](
-				ctx,
-				env.PprClient().Watch,
-				pprName,
-				aggregatorReconcileTimeout,
-				testutil.MatchPprStatus(7, 7, 7, map[testutil.ClusterId]int32{1: 3, 2: 4}, map[testutil.ClusterId]int32{1: 3, 2: 4}),
-			)
-		})
+				ginkgo.By("Wait for PodProtector state to converge", func() {
+					testutil.ExpectObject[*podseidonv1a1.PodProtector](
+						ctx,
+						env.PprClient().Watch,
+						pprName,
+						aggregatorReconcileTimeout,
+						testutil.MatchPprStatus(
+							7,
+							7,
+							7,
+							map[testutil.ClusterId]int32{1: 3, 2: 4},
+							map[testutil.ClusterId]int32{1: 3, 2: 4},
+						),
+					)
+				})
 
-		ginkgo.By("Validate that we can delete one pod from each cluster", func() {
-			for _, cluster := range env.WorkerClusters() {
-				err := env.PodClient(cluster.Id).
-					Delete(ctx, testutil.PodId{Cluster: cluster.Id, Pod: 0}.PodName(), metav1.DeleteOptions{})
-				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
-			}
-		})
+				ginkgo.By(fmt.Sprintf("Validate that we can %s one pod from each cluster", dm.SingularNoun()), func() {
+					for _, cluster := range env.WorkerClusters() {
+						err := dm.Delete(ctx, env, testutil.PodId{Cluster: cluster.Id, Pod: 0})
+						gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+					}
+				})
 
-		ginkgo.By("Validate that excessive deletion is rejected", func() {
-			err := env.PodClient(1).
-				Delete(ctx, testutil.PodId{Cluster: 1, Pod: 1}.PodName(), metav1.DeleteOptions{})
-			gomega.Expect(err).Should(gomega.SatisfyAll(
-				gomega.HaveOccurred(),
-				gomega.WithTransform(
-					testutil.ToStatusError,
-					gomega.WithTransform(
-						func(err *apierrors.StatusError) string { return err.ErrStatus.Message },
-						gomega.SatisfyAny(
-							gomega.ContainSubstring(
-								"reports too few available replicas to admit pod deletion",
-							),
-							gomega.ContainSubstring(
-								"has full admission buffer and is temporarily unable to admit pod deletion",
+				ginkgo.By(fmt.Sprintf("Validate that excessive %s is rejected", dm.SingularNoun()), func() {
+					err := dm.Delete(ctx, env, testutil.PodId{Cluster: 1, Pod: 1})
+					gomega.Expect(err).Should(gomega.SatisfyAll(
+						gomega.HaveOccurred(),
+						gomega.WithTransform(
+							testutil.ToStatusError,
+							gomega.WithTransform(
+								func(err *apierrors.StatusError) string { return err.ErrStatus.Message },
+								gomega.SatisfyAny(
+									gomega.ContainSubstring(
+										"reports too few available replicas to admit pod deletion",
+									),
+									gomega.ContainSubstring(
+										"has full admission buffer and is temporarily unable to admit pod deletion",
+									),
+								),
 							),
 						),
-					),
-				),
-			))
-		})
-	})
+					))
+				})
+			},
+		)
+	}
 
 	ginkgo.It("rejects bulk deletions", func(ctx ginkgo.SpecContext) {
 		ginkgo.By("Setup PodProtector and worker pods", func() {
@@ -252,22 +264,23 @@ var _ = ginkgo.Describe("Webhook", func() {
 				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			})
 
-			ginkgo.By("Validate that excessive deletion is rejected", func() {
-				err := env.PodClient(1).
-					Delete(ctx, testutil.PodId{Cluster: 1, Pod: 1}.PodName(), metav1.DeleteOptions{})
-				gomega.Expect(err).Should(gomega.SatisfyAll(
-					gomega.HaveOccurred(),
-					gomega.WithTransform(
-						testutil.ToStatusError,
+			for _, dm := range deletionMethods {
+				ginkgo.By(fmt.Sprintf("Validate that excessive %s is rejected", dm.SingularNoun()), func() {
+					err := dm.Delete(ctx, env, testutil.PodId{Cluster: 1, Pod: 1})
+					gomega.Expect(err).Should(gomega.SatisfyAll(
+						gomega.HaveOccurred(),
 						gomega.WithTransform(
-							func(err *apierrors.StatusError) string { return err.ErrStatus.Message },
-							gomega.ContainSubstring(
-								"has full admission buffer and is temporarily unable to admit pod deletion",
+							testutil.ToStatusError,
+							gomega.WithTransform(
+								func(err *apierrors.StatusError) string { return err.ErrStatus.Message },
+								gomega.ContainSubstring(
+									"has full admission buffer and is temporarily unable to admit pod deletion",
+								),
 							),
 						),
-					),
-				))
-			})
+					))
+				})
+			}
 		},
 	)
 
@@ -352,3 +365,38 @@ var _ = ginkgo.Describe("Webhook", func() {
 		})
 	})
 })
+
+type DeletionMethod interface {
+	SingularNoun() string
+	PluralNoun() string
+	Delete(ctx context.Context, env provision.Env, podId testutil.PodId) error
+}
+
+type DeletionMethodDelete struct{}
+
+func (DeletionMethodDelete) SingularNoun() string { return "deletion" }
+
+func (DeletionMethodDelete) PluralNoun() string { return "deletions" }
+
+func (DeletionMethodDelete) Delete(ctx context.Context, env provision.Env, podId testutil.PodId) error {
+	return env.PodClient(podId.Cluster).Delete(ctx, podId.PodName(), metav1.DeleteOptions{})
+}
+
+type DeletionMethodEvict struct{}
+
+func (DeletionMethodEvict) SingularNoun() string { return "eviction" }
+
+func (DeletionMethodEvict) PluralNoun() string { return "evictions" }
+
+func (DeletionMethodEvict) Delete(ctx context.Context, env provision.Env, podId testutil.PodId) error {
+	return env.PodClient(podId.Cluster).EvictV1(ctx, &policyv1.Eviction{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: podId.PodName(),
+		},
+	})
+}
+
+var deletionMethods = []DeletionMethod{
+	DeletionMethodDelete{},
+	DeletionMethodEvict{},
+}

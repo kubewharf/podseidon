@@ -371,6 +371,19 @@ func (setup *Setup) DeployPodseidon(ctx context.Context) error {
 		Option("pprof-bind-addr", "0.0.0.0").Option("pprof-port", "6060").
 		Option("prometheus-http-bind-addr", "0.0.0.0").Option("prometheus-http-port", "9090").
 		Option("webhook-https-bind-addr", "0.0.0.0").Option("webhook-https-port", "8080").
+		Option("webhook-worker-client-provider", "map").
+		OptionMountMap(
+			"webhook-worker-client-provider.map-configs",
+			iter.Map(
+				iter.FromSlice(setup.Env.WorkerClusters()),
+				func(cluster ClusterEnv) iter.Pair[string, string] {
+					return iter.Pair[string, string]{
+						Left:  cluster.Id.String(),
+						Right: cluster.containerKubeconfigPath,
+					}
+				},
+			).CollectSlice()).
+		Option("webhook-worker-client-provider.map-impersonate-username", "system:serviceaccount:default:podseidon-webhook").
 		Run(ctx); err != nil {
 		return err
 	}

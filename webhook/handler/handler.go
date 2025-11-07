@@ -24,9 +24,9 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
-	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/json"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/utils/clock"
 
@@ -43,6 +43,7 @@ import (
 	retrybatchobserver "github.com/kubewharf/podseidon/util/retrybatch/observer"
 	"github.com/kubewharf/podseidon/util/util"
 
+	"github.com/kubewharf/podseidon/webhook/cellclient"
 	"github.com/kubewharf/podseidon/webhook/observer"
 )
 
@@ -79,10 +80,11 @@ var New = component.Declare(
 					Elector: optional.None[kube.ElectorArgs](),
 				}),
 			),
-			observer:        o11y.Request[observer.Observer](requests),
-			requiresPodName: component.DepPtr(requests, RequestRequiresPodName()),
-			retrybatchObs:   o11y.Request[retrybatchobserver.Observer](requests),
-			defaultConfig:   component.DepPtr(requests, defaultconfig.New(util.Empty{})),
+			observer:           o11y.Request[observer.Observer](requests),
+			requiresPodName:    component.DepPtr(requests, RequestRequiresPodName()),
+			retrybatchObs:      o11y.Request[retrybatchobserver.Observer](requests),
+			defaultConfig:      component.DepPtr(requests, defaultconfig.New(util.Empty{})),
+			cellClientProvider: component.DepPtr(requests, cellclient.Request()),
 		}
 	},
 	func(_ context.Context, args Args, options Options, deps Deps) (*State, error) {
@@ -127,12 +129,13 @@ var New = component.Declare(
 		Join:         nil,
 		HealthChecks: nil,
 	},
-	func(d *component.Data[Args, Options, Deps, State]) Api {
+	func(data *component.Data[Args, Options, Deps, State]) Api {
 		return Api{
-			state:       d.State,
-			clk:         d.Args.Clock,
-			observer:    d.Deps.observer.Get(),
-			pprInformer: d.Deps.pprInformer.Get(),
+			state:       data.State,
+			clk:         data.Args.Clock,
+			observer:    data.Deps.observer.Get(),
+			pprInformer: data.Deps.pprInformer.Get(),
+			cellClients: data.Deps.cellClientProvider.Get(),
 		}
 	},
 )
@@ -148,12 +151,13 @@ type Options struct {
 }
 
 type Deps struct {
-	sourceProvider  component.Dep[pprutil.SourceProvider]
-	pprInformer     component.Dep[pprutil.IndexedInformer]
-	observer        component.Dep[observer.Observer]
-	requiresPodName component.Dep[RequiresPodName]
-	retrybatchObs   component.Dep[retrybatchobserver.Observer]
-	defaultConfig   component.Dep[*defaultconfig.Options]
+	sourceProvider     component.Dep[pprutil.SourceProvider]
+	pprInformer        component.Dep[pprutil.IndexedInformer]
+	observer           component.Dep[observer.Observer]
+	requiresPodName    component.Dep[RequiresPodName]
+	retrybatchObs      component.Dep[retrybatchobserver.Observer]
+	defaultConfig      component.Dep[*defaultconfig.Options]
+	cellClientProvider component.Dep[cellclient.Provider]
 }
 
 type State struct {
@@ -170,6 +174,7 @@ type Api struct {
 	clk         clock.Clock
 	observer    observer.Observer
 	pprInformer pprutil.IndexedInformer
+	cellClients cellclient.Provider
 }
 
 type HandleResult struct {
@@ -193,36 +198,51 @@ func (api Api) Handle(
 	cellId string,
 	auditAnnotations map[string]string,
 ) (_ HandleResult, _preferDryRun bool) {
-	if !isRelevantRequest(req) {
+	intrp, err := interpretRequest(ctx, req, func() (corev1client.PodsGetter, error) {
+		client, err := api.cellClients.Provide(cellId)
+		if err != nil {
+			return nil, errors.TagWrapf("GetCellClient", err, "cannot retrieve cluster client for cell %q", cellId)
+		}
+
+		return client.CoreV1(), nil
+	})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			var message string
+			//nolint:errorlint // code copied from apierrors.ReasonForError
+			if status, ok := err.(*apierrors.StatusError); ok || errors.As(err, &status) {
+				message = status.Error()
+			} else {
+				message = err.Error()
+			}
+
+			return HandleResult{
+				Status: observer.RequestStatusNotFound,
+				Rejection: optional.Some(Rejection{
+					Code:    http.StatusNotFound,
+					Message: message,
+				}),
+				Err: nil,
+			}, false
+		}
+
+		return errHandleResult(err)
+	}
+
+	if intrp == nil {
 		return HandleResult{
 			Status: observer.RequestStatusNotRelevant,
 			Rejection: optional.Some(Rejection{
 				Code:    http.StatusInternalServerError,
-				Message: "Unexpected review subject; only pod deletions are handled by this webhook",
+				Message: "Unexpected review subject; only pod deletions and evictions are handled by this webhook",
 			}),
 			Err: nil,
 		}, false
 	}
 
-	podJson := req.OldObject.Raw
-	if len(podJson) == 0 {
-		return errHandleResult(errors.TagErrorf(
-			"EmptyOldObject",
-			"oldObject is missing in delete review request",
-		))
-	}
+	preferDryRun := intrp.PrefersDryRun()
 
-	var subject *corev1.Pod
-	if err := json.Unmarshal(podJson, &subject); err != nil {
-		return errHandleResult(errors.TagErrorf(
-			"OldObjectJsonError",
-			"cannot unmarshal oldObject as a *corev1.Pod",
-		))
-	}
-
-	_, preferDryRun := subject.Annotations[podseidon.PodAnnotationForceDelete]
-
-	if !subject.DeletionTimestamp.IsZero() {
+	if intrp.IsAlreadyTerminating() {
 		// Pods that are already terminating should not contribute twice to the admission history.
 		return HandleResult{
 			Status:    observer.RequestStatusAlreadyTerminating,
@@ -231,19 +251,7 @@ func (api Api) Handle(
 		}, preferDryRun
 	}
 
-	podReadyTimeOpt := optional.None[time.Duration]()
-
-	if readyConditionIndex := util.FindInSliceWith(
-		subject.Status.Conditions,
-		func(condition corev1.PodCondition) bool { return condition.Type == corev1.PodReady },
-	); readyConditionIndex != -1 {
-		condition := subject.Status.Conditions[readyConditionIndex]
-		if condition.Status == corev1.ConditionTrue {
-			podReadyTimeOpt = optional.Some(api.clk.Since(condition.LastTransitionTime.Time))
-		}
-	}
-
-	podReadyTime, isPodReady := podReadyTimeOpt.Get()
+	podReadyTime, isPodReady := intrp.DurationSinceReady(api.clk).Get()
 	if !isPodReady {
 		// Do not reject pods that are already unready anyway.
 		// We expect that aggregator should have concluded the unavailability event.
@@ -264,12 +272,12 @@ func (api Api) Handle(
 
 	admitted := 0
 
-	for _, pprRef := range api.pprInformer.Query(subject.Namespace, subject.Labels) {
+	for _, pprRef := range api.pprInformer.Query(intrp.GetMetadata().Namespace, intrp.GetMetadata().GetLabels()) {
 		// If multiple PodProtector are matched, short circuit when any of them fails.
 		// Ideally we should roll back previous PodProtectors,
 		// but it is currently unimplemented because
 		// there are no pods matching multiple PodProtectors in practice.
-		result, canContinue := api.handlePodInPpr(ctx, pprRef, subject, podReadyTime, req.UserInfo, cellId)
+		result, canContinue := api.handlePodInPpr(ctx, pprRef, intrp.GetMetadata(), podReadyTime, req.UserInfo, cellId)
 
 		if !canContinue {
 			auditAnnotations[podseidon.AuditAnnotationRejectByPpr] = pprRef.Name
@@ -296,7 +304,7 @@ func (api Api) Handle(
 func (api Api) handlePodInPpr(
 	ctx context.Context,
 	pprRef pprutil.PodProtectorKey,
-	pod *corev1.Pod,
+	pod *metav1.ObjectMeta,
 	podReadyTime time.Duration,
 	user authenticationv1.UserInfo,
 	cellId string,
@@ -331,22 +339,11 @@ func (api Api) handlePodInPpr(
 	return result, result.Err == nil && !result.Rejection.IsSome()
 }
 
-func isRelevantRequest(req *admissionv1.AdmissionRequest) bool {
-	return req != nil &&
-		req.Operation == admissionv1.Delete && // TODO do we also handle CREATE /eviction?
-		req.Resource == metav1.GroupVersionResource{
-			Group:    corev1.SchemeGroupVersion.Group,
-			Version:  corev1.SchemeGroupVersion.Version, // we required matchPolicy=Equivalent
-			Resource: "pods",
-		} &&
-		req.SubResource == ""
-}
-
 func (api Api) determineRejection(
 	ctx context.Context,
 	pprRef pprutil.PodProtectorKey,
 	podReadyTime time.Duration,
-	pod *corev1.Pod,
+	pod *metav1.ObjectMeta,
 	cellId string,
 ) HandleResult {
 	ppr, err := api.pprInformer.Get(pprRef)

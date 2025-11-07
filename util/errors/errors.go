@@ -25,6 +25,9 @@ var Errorf = fmt.Errorf
 // Re-exports errors.Is from standard library.
 var Is = goerrors.Is
 
+// Re-exports errors.As from standard library.
+var As = goerrors.As
+
 // Re-exports errors.Join from standard library.
 var Join = goerrors.Join
 
