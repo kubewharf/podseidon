@@ -295,7 +295,7 @@ lint:
         END
 
         RUN cd $module && echo $module && \
-            golangci-lint run --timeout=15m
+            golangci-lint run --timeout=15m -c .golangci.json
     END
 
 test-base:
