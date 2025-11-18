@@ -18,6 +18,8 @@ jobs:
           ref: ${{github.event.pull_request.head.ref}}
           persist-credentials: false
       - name: Identify the module being updated
+        env:
+          HEAD_REF: ${{github.event.pull_request.head.ref}}
         run: |
           # Warning: this script must remain in the workflow file
           # to avoid running arbitrary code from untrusted PR authors with pull_request_target access.
@@ -27,7 +29,8 @@ jobs:
           #
           # See https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
 
-          cat <<EOF | python3 - "${{github.event.pull_request.head.ref}}"
+          cat <<EOF | python3 - "$HEAD_REF"
+          import shlex
           import sys
           from pathlib import Path
 
@@ -81,14 +84,20 @@ jobs:
               "tools",
             ]:
               f.write(f"pushd {module}\n")
-              f.write(f"go get {sum_module_name}@{dep_version}\n")
+              get_target = shlex.quote(f"{sum_module_name}@{dep_version}")
+              f.write(f"go get {get_target}\n")
               f.write("go mod tidy\n")
               f.write(f"popd\n")
           EOF
       - name: Execute global updates
+        # SAFETY: commands.sh is always overwritten by a sanitized build script generated above,
+        # which cannot be manipulated by pull requests to execute arbitrary code.
+        # This depends on the assumption that `go mod tidy` does not execute arbitrary user build scripts.
         run: bash -x commands.sh
       - run: git diff
       - name: Commit changes
+        env:
+          HEAD_REF: ${{github.event.pull_request.head.ref}}
         run: |
           set -x
           if ! git diff --exit-code >/dev/null; then
@@ -105,5 +114,5 @@ jobs:
 
             git remote add ssh git@github.com:kubewharf/podseidon
             ([[ -d ~/.ssh ]] || mkdir ~/.ssh) && echo "${{secrets.DEPENDABOT_UPDATE_TOKEN}}" >~/.ssh/id_rsa && chmod 400 ~/.ssh/id_rsa
-            git push ssh HEAD:"${{github.event.pull_request.head.ref}}"
+            git push ssh HEAD:"$HEAD_REF"
           fi
