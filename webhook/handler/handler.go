@@ -277,7 +277,7 @@ func (api Api) Handle(
 		// Ideally we should roll back previous PodProtectors,
 		// but it is currently unimplemented because
 		// there are no pods matching multiple PodProtectors in practice.
-		result, canContinue := api.handlePodInPpr(ctx, pprRef, intrp.GetMetadata(), podReadyTime, req.UserInfo, cellId)
+		result, canContinue := api.handlePodInPpr(ctx, pprRef, intrp, podReadyTime, req.UserInfo, cellId)
 
 		if !canContinue {
 			auditAnnotations[podseidon.AuditAnnotationRejectByPpr] = pprRef.Name
@@ -304,16 +304,19 @@ func (api Api) Handle(
 func (api Api) handlePodInPpr(
 	ctx context.Context,
 	pprRef pprutil.PodProtectorKey,
-	pod *metav1.ObjectMeta,
+	intrp InterpretedRequest,
 	podReadyTime time.Duration,
 	user authenticationv1.UserInfo,
 	cellId string,
 ) (_ HandleResult, _canContinue bool) {
+	pod := intrp.GetMetadata()
+
 	ctx, cancelFunc := api.observer.StartHandlePodInPpr(ctx, observer.StartHandlePodInPpr{
-		Namespace: pod.Namespace,
-		PprName:   pprRef.Name,
-		PodName:   pod.Name,
-		PodCell:   cellId,
+		Namespace:   pod.Namespace,
+		PprName:     pprRef.Name,
+		PodName:     pod.Name,
+		PodCell:     cellId,
+		RequestType: intrp.RequestType(),
 
 		DeleteUserName:   user.Username,
 		DeleteUserGroups: user.Groups,

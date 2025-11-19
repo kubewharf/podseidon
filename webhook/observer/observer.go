@@ -101,10 +101,11 @@ type HttpError struct {
 }
 
 type StartHandlePodInPpr struct {
-	Namespace string
-	PprName   string
-	PodName   string
-	PodCell   string
+	Namespace   string
+	PprName     string
+	PodName     string
+	PodCell     string
+	RequestType string
 
 	DeleteUserName   string
 	DeleteUserGroups []string

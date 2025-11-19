@@ -33,6 +33,7 @@ import (
 )
 
 type InterpretedRequest interface {
+	RequestType() string
 	PrefersDryRun() bool
 	IsAlreadyTerminating() bool
 	DurationSinceReady(clk clock.Clock) optional.Optional[time.Duration]
@@ -40,7 +41,12 @@ type InterpretedRequest interface {
 }
 
 type interpretedPodRequest struct {
-	subjectPod *corev1.Pod
+	subjectPod  *corev1.Pod
+	requestType string
+}
+
+func (req interpretedPodRequest) RequestType() string {
+	return req.requestType
 }
 
 func (req interpretedPodRequest) PrefersDryRun() bool {
@@ -104,7 +110,7 @@ func interpretRequest(
 			)
 		}
 
-		return interpretedPodRequest{subjectPod: subject}, nil
+		return interpretedPodRequest{subjectPod: subject, requestType: "DeletePod"}, nil
 	}
 
 	if req.Operation == admissionv1.Create && req.Resource == podGvr && req.SubResource == "eviction" {
@@ -118,7 +124,7 @@ func interpretRequest(
 			return nil, errors.TagWrapf("GetEvictedPod", err, "get subject pod of eviction from apiserver")
 		}
 
-		return interpretedPodRequest{subjectPod: fetchedPod}, nil
+		return interpretedPodRequest{subjectPod: fetchedPod, requestType: "EvictPod"}, nil
 	}
 
 	//nolint:nilnil // by design, parent does not use errors

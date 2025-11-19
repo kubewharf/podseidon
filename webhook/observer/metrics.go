@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	admissionv1 "k8s.io/api/admission/v1"
+
 	"github.com/kubewharf/podseidon/util/component"
 	"github.com/kubewharf/podseidon/util/errors"
 	"github.com/kubewharf/podseidon/util/o11y"
@@ -44,6 +46,7 @@ func ProvideMetrics() component.Declared[Observer] {
 			type requestTags struct {
 				Cell   string
 				Status string
+				Cause  string
 			}
 
 			type httpErrorTags struct {
@@ -62,12 +65,13 @@ func ProvideMetrics() component.Declared[Observer] {
 			type (
 				podInPprCtxKey   struct{}
 				podInPprCtxValue struct {
-					startTime time.Time
-					namespace string
-					user      string
-					pprName   string
-					podName   string
-					podCell   string
+					startTime   time.Time
+					namespace   string
+					user        string
+					pprName     string
+					podName     string
+					podCell     string
+					requestType string
 				}
 			)
 
@@ -82,6 +86,8 @@ func ProvideMetrics() component.Declared[Observer] {
 				Namespace string
 				// The username deleting the pod, when by-user is enabled.
 				User string
+				// Type of request, either DeletePod or EvictPod.
+				RequestType string
 
 				PodInPprBaseTags
 			}
@@ -153,9 +159,22 @@ func ProvideMetrics() component.Declared[Observer] {
 				},
 				HttpRequestComplete: func(ctx context.Context, arg RequestComplete) {
 					ctxValue := ctx.Value(requestCtxKey{}).(requestCtxValue)
+
+					cause := "Unknown"
+					if arg.Request != nil {
+						op := arg.Request.Operation
+						subres := arg.Request.SubResource
+
+						if op == admissionv1.Delete && subres == "" {
+							cause = "DeletePod"
+						} else if op == admissionv1.Create && subres == "eviction" {
+							cause = "EvictPod"
+						}
+					}
+
 					requestHandle.Emit(
 						time.Since(ctxValue.startTime),
-						requestTags{Cell: ctxValue.cell, Status: string(arg.Status)},
+						requestTags{Cell: ctxValue.cell, Status: string(arg.Status), Cause: cause},
 					)
 				},
 				HttpError: func(ctx context.Context, arg HttpError) {
@@ -176,12 +195,13 @@ func ProvideMetrics() component.Declared[Observer] {
 						ctx,
 						podInPprCtxKey{},
 						podInPprCtxValue{
-							startTime: time.Now(),
-							namespace: arg.Namespace,
-							user:      user,
-							pprName:   arg.PprName,
-							podName:   arg.PodName,
-							podCell:   arg.PodCell,
+							startTime:   time.Now(),
+							namespace:   arg.Namespace,
+							user:        user,
+							pprName:     arg.PprName,
+							podName:     arg.PodName,
+							podCell:     arg.PodCell,
+							requestType: arg.RequestType,
 						},
 					), util.NoOp
 				},
@@ -189,9 +209,10 @@ func ProvideMetrics() component.Declared[Observer] {
 					ctxValue := ctx.Value(podInPprCtxKey{}).(podInPprCtxValue)
 
 					tags := podInPprTags{
-						PodCell:   ctxValue.podCell,
-						Namespace: ctxValue.namespace,
-						User:      ctxValue.user,
+						PodCell:     ctxValue.podCell,
+						Namespace:   ctxValue.namespace,
+						User:        ctxValue.user,
+						RequestType: ctxValue.requestType,
 						PodInPprBaseTags: PodInPprBaseTags{
 							Rejected: arg.Rejected,
 						},
