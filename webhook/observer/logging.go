@@ -68,6 +68,7 @@ func ProvideLogging() component.Declared[Observer] {
 						"namespace", arg.Namespace,
 						"pprName", arg.PprName,
 						"podName", arg.PodName,
+						"requestType", arg.RequestType,
 						"userName", arg.DeleteUserName,
 						"userGroups", strings.Join(arg.DeleteUserGroups, ","),
 					)
