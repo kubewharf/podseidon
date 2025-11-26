@@ -442,6 +442,7 @@ e2e:
     ARG KELEMETRY_WARMUP_SLEEP='5s'
     ARG KELEMETRY_WAIT_SPAN_SLEEP='15s'
     ARG FAIL_FAST_FOR_INTERACTIVE='no' # If set to yes, fail fast and don't save artifacts on error
+    ARG PARALLELISM='-p'
 
     WORKDIR /etc/test-assets
 
@@ -460,7 +461,7 @@ e2e:
             --pull $KELEMETRY_JAEGER_REMOTE_STORAGE_IMAGE \
             --pull $KELEMETRY_ALLINONE_IMAGE
 
-        RUN (ginkgo --vv --output-interceptor-mode=none -p --trace ./tests.test || touch /var/trace/error); \
+        RUN (ginkgo --vv --output-interceptor-mode=none $PARALLELISM --trace ./tests.test || touch /var/trace/error); \
             if [ x${FAIL_FAST_FOR_INTERACTIVE} == xyes ]; then \
                 if [ -f /var/trace/error ]; then \
                     exit 1; \

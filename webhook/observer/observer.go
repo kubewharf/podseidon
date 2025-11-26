@@ -23,6 +23,10 @@ import (
 	"github.com/kubewharf/podseidon/util/component"
 	"github.com/kubewharf/podseidon/util/o11y"
 	pprutil "github.com/kubewharf/podseidon/util/podprotector"
+
+	"github.com/kubewharf/podseidon/webhook/handler/batchitem"
+	"github.com/kubewharf/podseidon/webhook/handler/disruptionquota"
+	"github.com/kubewharf/podseidon/webhook/handler/healthcriterion"
 )
 
 var Provide = component.RequireDeps(
@@ -42,7 +46,9 @@ type Observer struct {
 	EndExecuteRetrySuccess o11y.ObserveFunc[EndExecuteRetrySuccess]
 	EndExecuteRetryRetry   o11y.ObserveFunc[EndExecuteRetryRetry]
 	EndExecuteRetryErr     o11y.ObserveFunc[EndExecuteRetryErr]
-	ExecuteRetryQuota      o11y.ObserveFunc[ExecuteRetryQuota]
+
+	AdmitBatchState  o11y.ObserveFunc[AdmitBatchState]
+	ExecuteBatchItem o11y.ObserveFunc[ExecuteBatchItem]
 }
 
 func (Observer) ComponentName() string { return "webhook" }
@@ -68,6 +74,8 @@ const (
 	RequestStatusNotRelevant = RequestStatus("NotRelevant")
 	// The subject pod is already terminating and further deletion has no effect.
 	RequestStatusAlreadyTerminating = RequestStatus("AlreadyTerminating")
+	// The subject pod already has an entry in the admission history for the PodProtector.
+	RequestStatusAlreadyAdmitted = RequestStatus("AlreadyAdmitted")
 	// The subject pod is already unready and deletion does not disrupt any PodProtector quota.
 	RequestStatusAlreadyUnready = RequestStatus("AlreadyUnready")
 	// The subject pod has not reached minReadySeconds of a matched PodProtector
@@ -76,6 +84,8 @@ const (
 	// This status is only used in HandlePodInPpr.
 	// AdmittedAll is returned instead for the HttpRequest status.
 	RequestStatusStillUnavailable = RequestStatus("StillUnavailable")
+	// The subject pod is already unhealthy for the health criterion specified.
+	RequestStatusAlreadyUnhealthy = RequestStatus("AlreadyUnhealthy")
 	// The request matches more than one PodProtector,
 	// all of which allows the request to proceed,
 	// either because minReadySeconds has not been reached
@@ -119,18 +129,16 @@ type EndHandlePodInPpr struct {
 
 type StartExecuteRetry struct {
 	Key  pprutil.PodProtectorKey
-	Args []BatchArg
+	Args []BatchItem
 }
 
 // Argument for webhook retry-batch-pool, moved to this package to hack import cycles.
-type BatchArg struct {
-	CellId  string
-	PodUid  types.UID
-	PodName string
+type BatchItem struct {
+	CellId string
 }
 
 type EndExecuteRetrySuccess struct {
-	Results func(int) pprutil.DisruptionResult
+	Results func(int) batchitem.Result
 }
 
 type EndExecuteRetryRetry struct {
@@ -141,7 +149,18 @@ type EndExecuteRetryErr struct {
 	Err error
 }
 
-type ExecuteRetryQuota struct {
-	Before pprutil.DisruptionQuota
-	After  pprutil.DisruptionQuota
+type AdmitBatchState struct {
+	PprKey    pprutil.PodProtectorKey
+	State     disruptionquota.State
+	BatchSize int
+	After     bool
+}
+
+type ExecuteBatchItem struct {
+	PodName string
+	PodUid  types.UID
+	CellId  string
+	Result  batchitem.Result
+
+	HealthCriterion healthcriterion.Type
 }

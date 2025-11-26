@@ -3,6 +3,7 @@ module github.com/kubewharf/podseidon/webhook
 go 1.25.0
 
 require (
+	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/kubewharf/podseidon/apis v0.0.0
 	github.com/kubewharf/podseidon/util v0.0.0
 	k8s.io/api v0.34.1
@@ -13,6 +14,7 @@ require (
 )
 
 require (
+	github.com/alecthomas/repr v0.4.0 // indirect
 	github.com/axiomhq/hyperloglog v0.2.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -28,6 +30,7 @@ require (
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kamstrup/intmap v0.5.1 // indirect

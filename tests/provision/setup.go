@@ -196,6 +196,15 @@ func (setup *Setup) StartKwok(ctx context.Context, clusterId ClusterId) error {
 			return false, nil
 		}
 
+		_, err = nativeClient.CoreV1().ServiceAccounts(setup.Run.Namespace).Get(ctx, "default", metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+
+			return false, err
+		}
+
 		return true, nil
 	}); err != nil {
 		return fmt.Errorf("apiserver not ready after one minute: %w", err)

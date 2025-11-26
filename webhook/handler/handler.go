@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -35,6 +36,7 @@ import (
 	"github.com/kubewharf/podseidon/util/component"
 	"github.com/kubewharf/podseidon/util/defaultconfig"
 	"github.com/kubewharf/podseidon/util/errors"
+	"github.com/kubewharf/podseidon/util/iter"
 	"github.com/kubewharf/podseidon/util/kube"
 	"github.com/kubewharf/podseidon/util/o11y"
 	"github.com/kubewharf/podseidon/util/optional"
@@ -44,6 +46,9 @@ import (
 	"github.com/kubewharf/podseidon/util/util"
 
 	"github.com/kubewharf/podseidon/webhook/cellclient"
+	"github.com/kubewharf/podseidon/webhook/handler/batchitem"
+	"github.com/kubewharf/podseidon/webhook/handler/disruptionquota"
+	"github.com/kubewharf/podseidon/webhook/handler/healthcriterion"
 	"github.com/kubewharf/podseidon/webhook/observer"
 )
 
@@ -68,6 +73,7 @@ var New = component.Declare(
 				time.Millisecond*100,
 				"the actual retry backoff is uniformly distributed between [base, base+jitter)",
 			),
+			CritAnnots: NewCritAnnots(fs),
 		}
 	},
 	func(_ Args, requests *component.DepRequests) Deps {
@@ -90,7 +96,7 @@ var New = component.Declare(
 	func(_ context.Context, args Args, options Options, deps Deps) (*State, error) {
 		sourceProvider := deps.sourceProvider.Get()
 
-		poolReader, poolWriter := util.NewLateInit[retrybatch.Pool[pprutil.PodProtectorKey, BatchArg, pprutil.DisruptionResult]]()
+		poolReader, poolWriter := util.NewLateInit[retrybatch.Pool[pprutil.PodProtectorKey, BatchItem, batchitem.Result]]()
 
 		return &State{
 			sourceProvider:    sourceProvider,
@@ -136,6 +142,7 @@ var New = component.Declare(
 			observer:    data.Deps.observer.Get(),
 			pprInformer: data.Deps.pprInformer.Get(),
 			cellClients: data.Deps.cellClientProvider.Get(),
+			critAnnots:  data.Options.CritAnnots,
 		}
 	},
 )
@@ -148,6 +155,50 @@ type Options struct {
 	ColdStartDelay   *time.Duration
 	RetryBackoffBase *time.Duration
 	RetryJitter      *time.Duration
+
+	CritAnnots HealthCriterionAnnotations
+}
+
+type HealthCriterionAnnotations struct {
+	Scheduled iter.Pair[*string, *string]
+	Running   iter.Pair[*string, *string]
+	Ready     iter.Pair[*string, *string]
+}
+
+func NewCritAnnots(fs *flag.FlagSet) HealthCriterionAnnotations {
+	newPair := func(desc string, key string, value string) iter.Pair[*string, *string] {
+		return iter.NewPair(
+			fs.String(
+				fmt.Sprintf("health-criterion-%s-key", desc),
+				key,
+				fmt.Sprintf("override health criterion to %s with this annotation key", desc),
+			),
+			fs.String(
+				fmt.Sprintf("health-criterion-%s-value", desc),
+				value,
+				fmt.Sprintf("override health criterion to %s when the annotation key has this value", desc),
+			),
+		)
+	}
+
+	return HealthCriterionAnnotations{
+		Scheduled: newPair("scheduled", podseidon.EvictionAnnotationHealthCriterion, podseidon.HealthCriterionScheduled),
+		Running:   newPair("running", podseidon.EvictionAnnotationHealthCriterion, podseidon.HealthCriterionRunning),
+		Ready:     newPair("ready", podseidon.EvictionAnnotationHealthCriterion, podseidon.HealthCriterionReady),
+	}
+}
+
+func (annots HealthCriterionAnnotations) Get(intrp InterpretedRequest) healthcriterion.Type {
+	switch {
+	case intrp.GetAnnotation(*annots.Scheduled.Left) == optional.Some(*annots.Scheduled.Right):
+		return healthcriterion.Scheduled
+	case intrp.GetAnnotation(*annots.Running.Left) == optional.Some(*annots.Running.Right):
+		return healthcriterion.Running
+	case intrp.GetAnnotation(*annots.Ready.Left) == optional.Some(*annots.Ready.Right):
+		return healthcriterion.Ready
+	default:
+		return healthcriterion.Available
+	}
 }
 
 type Deps struct {
@@ -164,9 +215,9 @@ type State struct {
 	sourceProvider    pprutil.SourceProvider
 	informerHasSynced cache.InformerSynced
 
-	poolConfig retrybatch.PoolConfig[pprutil.PodProtectorKey, BatchArg, pprutil.DisruptionResult]
-	poolWriter util.LateInitWriter[retrybatch.Pool[pprutil.PodProtectorKey, BatchArg, pprutil.DisruptionResult]]
-	poolReader util.LateInitReader[retrybatch.Pool[pprutil.PodProtectorKey, BatchArg, pprutil.DisruptionResult]]
+	poolConfig retrybatch.PoolConfig[pprutil.PodProtectorKey, BatchItem, batchitem.Result]
+	poolWriter util.LateInitWriter[retrybatch.Pool[pprutil.PodProtectorKey, BatchItem, batchitem.Result]]
+	poolReader util.LateInitReader[retrybatch.Pool[pprutil.PodProtectorKey, BatchItem, batchitem.Result]]
 }
 
 type Api struct {
@@ -175,6 +226,7 @@ type Api struct {
 	observer    observer.Observer
 	pprInformer pprutil.IndexedInformer
 	cellClients cellclient.Provider
+	critAnnots  HealthCriterionAnnotations
 }
 
 type HandleResult struct {
@@ -323,7 +375,7 @@ func (api Api) handlePodInPpr(
 	})
 	defer cancelFunc()
 
-	result := api.determineRejection(ctx, pprRef, podReadyTime, pod, cellId)
+	result := api.determineRejection(ctx, pprRef, podReadyTime, intrp, pod, cellId)
 
 	// code is only used for o11y.
 	{
@@ -346,6 +398,7 @@ func (api Api) determineRejection(
 	ctx context.Context,
 	pprRef pprutil.PodProtectorKey,
 	podReadyTime time.Duration,
+	intrp InterpretedRequest,
 	pod *metav1.ObjectMeta,
 	cellId string,
 ) HandleResult {
@@ -374,7 +427,19 @@ func (api Api) determineRejection(
 		}
 	}
 
-	result, err := api.state.poolReader.Get().Submit(ctx, pprRef, BatchArg{CellId: cellId, PodUid: pod.UID, PodName: pod.Name})
+	criterion := api.critAnnots.Get(intrp)
+
+	result, err := api.state.poolReader.Get().Submit(ctx, pprRef, BatchItem{
+		BatchItem: observer.BatchItem{
+			CellId: cellId,
+		},
+		PodUid:  pod.UID,
+		PodName: pod.Name,
+		PodStatus: disruptionquota.PodStatus{
+			HealthCriterion: criterion,
+			Status:          intrp.GetPodStatus(minReadySeconds),
+		},
+	})
 	if err != nil {
 		return HandleResult{
 			Status: observer.RequestStatusError,
@@ -387,25 +452,31 @@ func (api Api) determineRejection(
 	}
 
 	switch result {
-	case pprutil.DisruptionResultOk:
+	case batchitem.ResultNewDisruption:
 		return HandleResult{
 			Status:    observer.RequestStatusAdmittedAll,
 			Rejection: optional.None[Rejection](),
 			Err:       nil,
 		}
-	case pprutil.DisruptionResultDenied:
+	case batchitem.ResultNoPpr:
 		return HandleResult{
-			Status: observer.RequestStatusRejected,
-			Rejection: optional.Some(Rejection{
-				Code: http.StatusBadRequest,
-				Message: fmt.Sprintf(
-					"PodProtector %s/%s reports too few available replicas to admit pod deletion",
-					pprRef.Namespace, pprRef.Name,
-				),
-			}),
-			Err: nil,
+			Status:    observer.RequestStatusNotRelevant,
+			Rejection: optional.None[Rejection](),
+			Err:       nil,
 		}
-	case pprutil.DisruptionResultRetry:
+	case batchitem.ResultAlreadyUnhealthy:
+		return HandleResult{
+			Status:    observer.RequestStatusAlreadyUnhealthy,
+			Rejection: optional.None[Rejection](),
+			Err:       nil,
+		}
+	case batchitem.ResultAlreadyHasBucket:
+		return HandleResult{
+			Status:    observer.RequestStatusAlreadyAdmitted,
+			Rejection: optional.None[Rejection](),
+			Err:       nil,
+		}
+	case batchitem.ResultNeedRetry:
 		return HandleResult{
 			Status: observer.RequestStatusRetryAdvised,
 			Rejection: optional.Some(Rejection{
@@ -418,8 +489,20 @@ func (api Api) determineRejection(
 			}),
 			Err: nil,
 		}
+	case batchitem.ResultRejected:
+		return HandleResult{
+			Status: observer.RequestStatusRejected,
+			Rejection: optional.Some(Rejection{
+				Code: http.StatusTooManyRequests,
+				Message: fmt.Sprintf(
+					"PodProtector %s/%s reports too few %s replicas to admit pod deletion",
+					pprRef.Namespace, pprRef.Name, strings.ToLower(criterion.String()),
+				),
+			}),
+			Err: nil,
+		}
 	default:
-		panic("invalid DisruptionResult value")
+		panic("invalid batchitem.Result value")
 	}
 }
 

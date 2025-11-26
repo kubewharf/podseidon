@@ -234,7 +234,8 @@ func ProvideMetrics() component.Declared[Observer] {
 				EndExecuteRetrySuccess: func(context.Context, EndExecuteRetrySuccess) {},
 				EndExecuteRetryRetry:   func(context.Context, EndExecuteRetryRetry) {},
 				EndExecuteRetryErr:     func(context.Context, EndExecuteRetryErr) {},
-				ExecuteRetryQuota:      func(context.Context, ExecuteRetryQuota) {},
+				AdmitBatchState:        func(context.Context, AdmitBatchState) {},
+				ExecuteBatchItem:       func(context.Context, ExecuteBatchItem) {},
 			}
 		},
 	)

@@ -28,9 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
+	podseidon "github.com/kubewharf/podseidon/apis"
 	podseidonv1a1 "github.com/kubewharf/podseidon/apis/v1alpha1"
 
 	"github.com/kubewharf/podseidon/util/defaultconfig"
+	"github.com/kubewharf/podseidon/util/optional"
 	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 
 	"github.com/kubewharf/podseidon/tests/fixtures"
@@ -50,9 +52,9 @@ var _ = ginkgo.Describe("Webhook", func() {
 		}
 	}))
 
-	for _, dm := range deletionMethods {
+	for _, dm := range DefaultDeletionMethods {
 		ginkgo.It(
-			fmt.Sprintf("allows normal %s and rejects extra %s", dm.SingularNoun(), dm.PluralNoun()),
+			fmt.Sprintf("allows normal %s and rejects extra %s", dm.Noun(), dm.Noun()),
 			func(ctx ginkgo.SpecContext) {
 				ginkgo.By("Setup PodProtector and worker pods", func() {
 					fixtures.CreatePodProtectorAndPods(
@@ -91,15 +93,15 @@ var _ = ginkgo.Describe("Webhook", func() {
 					)
 				})
 
-				ginkgo.By(fmt.Sprintf("Validate that we can %s one pod from each cluster", dm.SingularNoun()), func() {
+				ginkgo.By(fmt.Sprintf("Validate that one pod %s is allowed from each cluster", dm.Noun()), func() {
 					for _, cluster := range env.WorkerClusters() {
-						err := dm.Delete(ctx, env, testutil.PodId{Cluster: cluster.Id, Pod: 0})
+						err := dm.Delete(ctx, &env, testutil.PodId{Cluster: cluster.Id, Pod: 0})
 						gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 					}
 				})
 
-				ginkgo.By(fmt.Sprintf("Validate that excessive %s is rejected", dm.SingularNoun()), func() {
-					err := dm.Delete(ctx, env, testutil.PodId{Cluster: 1, Pod: 1})
+				ginkgo.By(fmt.Sprintf("Validate that excessive %s is rejected", dm.Noun()), func() {
+					err := dm.Delete(ctx, &env, testutil.PodId{Cluster: 1, Pod: 1})
 					gomega.Expect(err).Should(gomega.SatisfyAll(
 						gomega.HaveOccurred(),
 						gomega.WithTransform(
@@ -264,9 +266,9 @@ var _ = ginkgo.Describe("Webhook", func() {
 				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 			})
 
-			for _, dm := range deletionMethods {
-				ginkgo.By(fmt.Sprintf("Validate that excessive %s is rejected", dm.SingularNoun()), func() {
-					err := dm.Delete(ctx, env, testutil.PodId{Cluster: 1, Pod: 1})
+			for _, dm := range DefaultDeletionMethods {
+				ginkgo.By(fmt.Sprintf("Validate that excessive %s is rejected", dm.Noun()), func() {
+					err := dm.Delete(ctx, &env, testutil.PodId{Cluster: 1, Pod: 1})
 					gomega.Expect(err).Should(gomega.SatisfyAll(
 						gomega.HaveOccurred(),
 						gomega.WithTransform(
@@ -364,31 +366,109 @@ var _ = ginkgo.Describe("Webhook", func() {
 			gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 		})
 	})
+
+	for _, tc := range []struct {
+		dm       DeletionMethod
+		annotate bool
+	}{
+		{dm: DeletionMethodDelete{}, annotate: true},
+		{dm: DeletionMethodEvict{}, annotate: true},
+		{dm: DeletionMethodAnnotatedEvict{
+			Annotations: map[string]string{
+				podseidon.EvictionAnnotationHealthCriterion: podseidon.HealthCriterionRunning,
+			},
+		}, annotate: false},
+	} {
+		ginkgo.It(fmt.Sprintf("allows annotated pod %s when peer is running", tc.dm.Noun()), func(ctx ginkgo.SpecContext) {
+			ginkgo.By("Setup PodProtector and worker pods", func() {
+				fixtures.CreatePodProtectorAndPods(
+					ctx,
+					&env,
+					pprName,
+					testutil.PodCounts{1: 1, 2: 1},
+					1, 0,
+					podseidonv1a1.AdmissionHistoryConfig{
+						MaxConcurrentLag:      nil,
+						CompactThreshold:      ptr.To[int32](100),
+						AggregationRateMillis: ptr.To[int32](2000),
+					},
+				)
+			})
+
+			ginkgo.By("Mark pods as ready and running respectively", func() {
+				readyTime := time.Now()
+
+				fixtures.MarkPodAsReady(ctx, &env, testutil.PodId{Cluster: 1, Pod: 0}, readyTime)
+
+				fixtures.MarkPodConditions(
+					ctx,
+					&env,
+					testutil.PodId{Cluster: 2, Pod: 0},
+					fixtures.PodConditions{
+						Phase:       corev1.PodRunning,
+						Scheduled:   optional.Some(readyTime),
+						Initialized: optional.Some(readyTime),
+						Ready:       optional.None[time.Time](),
+					},
+				)
+			})
+
+			ginkgo.By("Wait for PodProtector state to converge", func() {
+				testutil.ExpectObject[*podseidonv1a1.PodProtector](
+					ctx,
+					env.PprClient().Watch,
+					pprName,
+					aggregatorReconcileTimeout,
+					testutil.MatchPprStatus(2, 1, 1, map[testutil.ClusterId]int32{1: 1, 2: 1}, map[testutil.ClusterId]int32{1: 1, 2: 0}),
+				)
+			})
+
+			if tc.annotate {
+				ginkgo.By(fmt.Sprintf("Validate that available pod %s is rejected", tc.dm.Noun()), func() {
+					err := tc.dm.Delete(ctx, &env, testutil.PodId{Cluster: 1, Pod: 0})
+					gomega.Expect(err).Should(gomega.HaveOccurred())
+					gomega.Expect(err).
+						Should(gomega.MatchError(gomega.ContainSubstring("too few available replicas to admit pod deletion")))
+				})
+
+				ginkgo.By("Annotate criterion annotation", func() {
+					fixtures.UpdatePod(ctx, &env, testutil.PodId{Cluster: 1, Pod: 0}, func(pod *corev1.Pod) {
+						if pod.Annotations == nil {
+							pod.Annotations = map[string]string{}
+						}
+
+						pod.Annotations[podseidon.EvictionAnnotationHealthCriterion] = podseidon.HealthCriterionRunning
+					})
+				})
+			}
+
+			ginkgo.By(fmt.Sprintf("Validate that available pod %s is allowed", tc.dm.Noun()), func() {
+				err := tc.dm.Delete(ctx, &env, testutil.PodId{Cluster: 1, Pod: 0})
+				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+			})
+		})
+	}
 })
 
 type DeletionMethod interface {
-	SingularNoun() string
-	PluralNoun() string
-	Delete(ctx context.Context, env provision.Env, podId testutil.PodId) error
+	Noun() string
+
+	Delete(ctx context.Context, env *provision.Env, podId testutil.PodId) error
 }
 
 type DeletionMethodDelete struct{}
 
-func (DeletionMethodDelete) SingularNoun() string { return "deletion" }
+func (DeletionMethodDelete) Noun() string { return "deletion" }
 
-func (DeletionMethodDelete) PluralNoun() string { return "deletions" }
-
-func (DeletionMethodDelete) Delete(ctx context.Context, env provision.Env, podId testutil.PodId) error {
+func (DeletionMethodDelete) Delete(ctx context.Context, env *provision.Env, podId testutil.PodId) error {
 	return env.PodClient(podId.Cluster).Delete(ctx, podId.PodName(), metav1.DeleteOptions{})
 }
 
 type DeletionMethodEvict struct{}
 
-func (DeletionMethodEvict) SingularNoun() string { return "eviction" }
+func (DeletionMethodEvict) Noun() string { return "eviction" }
 
-func (DeletionMethodEvict) PluralNoun() string { return "evictions" }
-
-func (DeletionMethodEvict) Delete(ctx context.Context, env provision.Env, podId testutil.PodId) error {
+func (DeletionMethodEvict) Delete(ctx context.Context, env *provision.Env, podId testutil.PodId) error {
 	return env.PodClient(podId.Cluster).EvictV1(ctx, &policyv1.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podId.PodName(),
@@ -396,7 +476,24 @@ func (DeletionMethodEvict) Delete(ctx context.Context, env provision.Env, podId 
 	})
 }
 
-var deletionMethods = []DeletionMethod{
+type DeletionMethodAnnotatedEvict struct {
+	Annotations map[string]string
+}
+
+func (DeletionMethodAnnotatedEvict) Noun() string {
+	return "eviction with annotation in Eviction object"
+}
+
+func (dm DeletionMethodAnnotatedEvict) Delete(ctx context.Context, env *provision.Env, podId testutil.PodId) error {
+	return env.PodClient(podId.Cluster).EvictV1(ctx, &policyv1.Eviction{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        podId.PodName(),
+			Annotations: dm.Annotations,
+		},
+	})
+}
+
+var DefaultDeletionMethods = []DeletionMethod{
 	DeletionMethodDelete{},
 	DeletionMethodEvict{},
 }

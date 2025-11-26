@@ -64,3 +64,26 @@ const (
 	// Indicates the PodProtector object that denied the request.
 	AuditAnnotationRejectByPpr = "reject-by-podprotector"
 )
+
+// Annotates pods and eviction requests that should use an alternative health criterion.
+//
+// Pods are only allowed to be deleted/evicted when the total number of healthy pods exceeds minAvailable.
+// Changing this to other HealthCriterion* values changes the definition of "healthy pods".
+//
+// If an invalid criterion is specified, it is assumed to be "Available".
+//
+// Unavailable pods are always allowed to be deleted/evicted.
+// Changing this to a weaker condition does not constrain this behavior to a stronger condition.
+// For example, if the health criterion is Running and a pod is Running but not Ready,
+// it is still allowed to be deleted unconditionally.
+//
+// This annotation only affects the pod or eviction request it is applied on.
+// It does not change how health is calculated when other pods are deleted/evicted.
+const EvictionAnnotationHealthCriterion = "podseidon.kubewharf.io/health-criterion"
+
+const (
+	HealthCriterionAvailable = "Available"
+	HealthCriterionReady     = "Ready"
+	HealthCriterionRunning   = "Running"
+	HealthCriterionScheduled = "Scheduled"
+)
