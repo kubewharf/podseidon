@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"hash/fnv"
 	"os"
 	"path"
@@ -212,12 +213,21 @@ type Run struct {
 }
 
 type Request struct {
+	Hash     uint32
 	Count    testutil.ClusterCount
 	Clusters map[testutil.ClusterId]ClusterRequest
 }
 
 type ClusterRequest struct {
 	EnableAggregatorUpdateTrigger bool
+}
+
+func (req ClusterRequest) Hash(hasher hash.Hash) {
+	if req.EnableAggregatorUpdateTrigger {
+		_, _ = hasher.Write([]byte{1})
+	} else {
+		_, _ = hasher.Write([]byte{0})
+	}
 }
 
 func NewRequest(numWorkers int, mutateCluster func(cluster testutil.ClusterId, req *ClusterRequest)) Request {
@@ -232,7 +242,14 @@ func NewRequest(numWorkers int, mutateCluster func(cluster testutil.ClusterId, r
 		clusters[cluster] = req
 	}
 
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte{uint8(len(count.ClusterIds()))})
+	for _, cluster := range count.ClusterIds() {
+		clusters[cluster].Hash(hasher)
+	}
+
 	return Request{
+		Hash:     hasher.Sum32(),
 		Count:    count,
 		Clusters: clusters,
 	}

@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
 	jaegerjson "github.com/jaegertracing/jaeger/model/json"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -73,38 +74,180 @@ func TryInit(ctx context.Context, setup *Setup) error {
 		return fmt.Errorf("write spec title to output: %w", err)
 	}
 
-	clusters := setup.Request.Count.ClusterIds()
-	setup.Env.Clusters = make([]ClusterEnv, len(clusters))
+	startupCtx, cancelFunc := context.WithTimeout(ctx, time.Minute*5)
+	defer cancelFunc()
 
-	var wg sync.WaitGroup
-	errs := make([]error, len(clusters))
-	for i, clusterId := range clusters {
-		errPtr := &errs[i]
-		wg.Add(1)
+	err := reuseClusterSet(
+		startupCtx,
+		setup.Run.Logger,
+		setup.Request.Hash,
+		func(clusters ReusableClusterSet) error {
+			setup.Env.Clusters = make([]ClusterEnv, len(clusters.Clusters))
 
-		go func() {
-			defer wg.Done()
+			for clusterIndex, cluster := range clusters.Clusters {
+				restConfig, err := clientcmd.BuildConfigFromFlags("", cluster.HostKubeconfigPath)
+				if err != nil {
+					return fmt.Errorf("build kubeconfig from reused cluster %d: %w", clusterIndex, err)
+				}
 
-			if err := setup.InitCluster(ctx, clusterId); err != nil {
-				*errPtr = fmt.Errorf("init cluster %v: %w", clusterId, err)
+				nativeClient, err := kubernetes.NewForConfig(restConfig)
+				if err != nil {
+					return fmt.Errorf("construct native client: %w", err)
+				}
+
+				podseidonClient, err := podseidonclient.NewForConfig(restConfig)
+				if err != nil {
+					return fmt.Errorf("construct podseidon client: %w", err)
+				}
+
+				setup.Env.Clusters[clusterIndex] = ClusterEnv{
+					Id:                      cluster.Id,
+					HostKubeconfigPath:      cluster.HostKubeconfigPath,
+					RestConfig:              restConfig,
+					NativeClient:            nativeClient,
+					PodseidonClient:         podseidonClient,
+					containerKubeconfigPath: "(unused)", // only used during init
+				}
+
+				logger := setup.Run.Logger.WithValues("cluster", cluster.Id.String())
+				if err := CreateNamespace(ctx, logger, nativeClient, &setup.Run); err != nil {
+					return fmt.Errorf("create namespace in loaded cluster: %w", err)
+				}
 			}
-		}()
-	}
-	wg.Wait()
 
-	if err := errors.Join(errs...); err != nil {
+			return nil
+		},
+		func() (_zero ReusableClusterSet, _ error) {
+			clusters := setup.Request.Count.ClusterIds()
+			setup.Env.Clusters = make([]ClusterEnv, len(clusters))
+
+			var wg sync.WaitGroup
+			errs := make([]error, len(clusters))
+			for i, clusterId := range clusters {
+				errPtr := &errs[i]
+				wg.Add(1)
+
+				go func() {
+					defer wg.Done()
+
+					if err := setup.InitCluster(ctx, clusterId); err != nil {
+						*errPtr = fmt.Errorf("init cluster %v: %w", clusterId, err)
+					}
+				}()
+			}
+			wg.Wait()
+
+			if err := errors.Join(errs...); err != nil {
+				return _zero, err
+			}
+
+			if err := setup.DeployPodseidon(ctx); err != nil {
+				return _zero, fmt.Errorf("deploy podseidon: %w", err)
+			}
+
+			if err := setup.InstallKelemetry(ctx); err != nil {
+				return _zero, fmt.Errorf("install kelemetry: %w", err)
+			}
+
+			return ReusableClusterSet{
+				Clusters: util.MapSlice(setup.Env.Clusters, func(env ClusterEnv) ReusableCluster {
+					return ReusableCluster{
+						Id:                 env.Id,
+						HostKubeconfigPath: env.HostKubeconfigPath,
+					}
+				}),
+			}, nil
+		},
+	)
+	if err != nil {
 		return err
 	}
 
-	if err := setup.DeployPodseidon(ctx); err != nil {
-		return fmt.Errorf("deploy podseidon: %w", err)
+	return nil
+}
+
+func reuseClusterSet(
+	ctx context.Context,
+	logger logr.Logger,
+	hash uint32,
+	hasExisting func(ReusableClusterSet) error,
+	createNew func() (ReusableClusterSet, error),
+) error {
+	lockPath := fmt.Sprintf("/tmp/cluster-%d", hash)
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("test for presence of cluster %d: %w", hash, err)
+		}
+
+		err := loadExisting(ctx, lockPath, hasExisting)
+		if err != nil {
+			return fmt.Errorf("load reused cluster %d: %w", hash, err)
+		}
+
+		return nil
 	}
 
-	if err := setup.InstallKelemetry(ctx); err != nil {
-		return fmt.Errorf("install kelemetry: %w", err)
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Error(err, "closing lock file")
+		}
+	}()
+
+	clusters, err := createNew()
+	if err != nil {
+		return fmt.Errorf("attempt to reuse %d: %w", hash, err)
+	}
+
+	data, err := json.Marshal(clusters)
+	if err != nil {
+		return fmt.Errorf("marshal reusable cluster set: %w", err)
+	}
+
+	if _, err := file.Write(data); err != nil {
+		return fmt.Errorf("write reusable cluster set to %s: %w", lockPath, err)
 	}
 
 	return nil
+}
+
+func loadExisting(ctx context.Context, lockPath string, hasExisting func(ReusableClusterSet) error) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+nextTick:
+	for {
+		select {
+		case <-ticker.C:
+			data, err := os.ReadFile(lockPath)
+			if err != nil {
+				return fmt.Errorf("read lock file %s: %w", lockPath, err)
+			}
+
+			var clusters ReusableClusterSet
+			if err := json.Unmarshal(data, &clusters); err != nil {
+				ginkgo.GinkgoLogr.Info("waiting for valid ReusableClusterSet from another process", "err", err.Error())
+				continue nextTick
+			}
+
+			if err := hasExisting(clusters); err != nil {
+				return err
+			}
+
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+type ReusableClusterSet struct {
+	Clusters []ReusableCluster `json:"clusters"`
+}
+
+type ReusableCluster struct {
+	Id                 ClusterId `json:"id"`
+	HostKubeconfigPath string    `json:"kubeconfig"`
 }
 
 func (setup *Setup) InitCluster(ctx context.Context, clusterId ClusterId) error {
@@ -127,7 +270,7 @@ func (setup *Setup) InitCluster(ctx context.Context, clusterId ClusterId) error 
 }
 
 func (setup *Setup) StartKwok(ctx context.Context, clusterId ClusterId) error {
-	clusterName := clusterId.KwokName(setup.Run.Namespace)
+	clusterName := clusterId.KwokName(setup.Request.Hash)
 
 	logger := setup.Run.Logger.WithValues("cluster", clusterName)
 	logger.Info("Create kwok cluster")
@@ -175,41 +318,12 @@ func (setup *Setup) StartKwok(ctx context.Context, clusterId ClusterId) error {
 	}
 	podseidonClient, err := podseidonclient.NewForConfig(restConfig)
 	if err != nil {
-		return fmt.Errorf("construct native client: %w", err)
+		return fmt.Errorf("construct podseidon client: %w", err)
 	}
 
-	logger.Info("Wait for apiserver ready to write")
-	startWait := time.Now()
-	if err := wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (_done bool, _err error) {
-		_, err := nativeClient.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: setup.Run.Namespace,
-				Annotations: map[string]string{
-					"spec-title": setup.Run.SpecTitle,
-				},
-				Labels: map[string]string{
-					"name": setup.Run.Namespace,
-				},
-			},
-		}, metav1.CreateOptions{})
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return false, nil
-		}
-
-		_, err = nativeClient.CoreV1().ServiceAccounts(setup.Run.Namespace).Get(ctx, "default", metav1.GetOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return false, nil
-			}
-
-			return false, err
-		}
-
-		return true, nil
-	}); err != nil {
-		return fmt.Errorf("apiserver not ready after one minute: %w", err)
+	if err := CreateNamespace(ctx, logger, nativeClient, &setup.Run); err != nil {
+		return fmt.Errorf("try to write namespace in cluster: %w", err)
 	}
-	logger.Info("apiserver ready", "elapsed", time.Since(startWait))
 
 	containerKubeconfig, err := setup.Command(
 		"kubectl", "config", "view",
@@ -242,6 +356,42 @@ func (setup *Setup) StartKwok(ctx context.Context, clusterId ClusterId) error {
 		containerKubeconfigPath: containerKubeconfigPath,
 	}
 
+	return nil
+}
+
+func CreateNamespace(ctx context.Context, logger logr.Logger, nativeClient kubernetes.Interface, run *Run) error {
+	logger.Info("Wait for apiserver ready to write")
+	startWait := time.Now()
+	if err := wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (_done bool, _err error) {
+		_, err := nativeClient.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: run.Namespace,
+				Annotations: map[string]string{
+					"spec-title": run.SpecTitle,
+				},
+				Labels: map[string]string{
+					"name": run.Namespace,
+				},
+			},
+		}, metav1.CreateOptions{})
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return false, nil
+		}
+
+		_, err = nativeClient.CoreV1().ServiceAccounts(run.Namespace).Get(ctx, "default", metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+
+			return false, err
+		}
+
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("apiserver not ready after one minute: %w", err)
+	}
+	logger.Info("apiserver ready", "elapsed", time.Since(startWait))
 	return nil
 }
 
@@ -350,7 +500,7 @@ func (setup *Setup) InstallWorkerChart(ctx context.Context, cluster *ClusterEnv)
 
 func (setup *Setup) kwokNetworkNames() []string {
 	return util.MapSlice(setup.Request.Count.ClusterIds(), func(id ClusterId) string {
-		return fmt.Sprintf("kwok-%s", id.KwokName(setup.Run.Namespace))
+		return fmt.Sprintf("kwok-%s", id.KwokName(setup.Request.Hash))
 	})
 }
 
@@ -446,7 +596,7 @@ func (setup *Setup) fixPodseidonWebhookConfig(ctx context.Context, cluster Clust
 	webhookAddr, err := setup.PollContainerAddressInNetwork(
 		ctx,
 		"podseidon-webhook",
-		fmt.Sprintf("kwok-%s", cluster.KwokName(setup.Run.Namespace)),
+		fmt.Sprintf("kwok-%s", cluster.KwokName(setup.Request.Hash)),
 	)
 	if err != nil {
 		return err
