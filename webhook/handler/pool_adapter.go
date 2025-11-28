@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 
@@ -33,11 +34,20 @@ import (
 	"github.com/kubewharf/podseidon/util/retrybatch"
 	"github.com/kubewharf/podseidon/util/util"
 
+	"github.com/kubewharf/podseidon/webhook/handler/batchitem"
+	"github.com/kubewharf/podseidon/webhook/handler/disruptionquota"
 	"github.com/kubewharf/podseidon/webhook/observer"
 )
 
 // Hack: another type alias to resolve import cycle issues.
-type BatchArg = observer.BatchArg
+type BatchItem struct {
+	observer.BatchItem
+
+	PodUid  types.UID
+	PodName string
+
+	PodStatus disruptionquota.PodStatus
+}
 
 type PoolAdapter struct {
 	sourceProvider  pprutil.SourceProvider
@@ -56,11 +66,11 @@ func (PoolAdapter) PoolName() string {
 func (adapter PoolAdapter) Execute(
 	ctx context.Context,
 	key pprutil.PodProtectorKey,
-	args []BatchArg,
-) retrybatch.ExecuteResult[pprutil.DisruptionResult] {
+	args []BatchItem,
+) retrybatch.ExecuteResult[batchitem.Result] {
 	ctx, cancelFunc := adapter.observer.StartExecuteRetry(
 		ctx,
-		observer.StartExecuteRetry{Key: key, Args: args},
+		observer.StartExecuteRetry{Key: key, Args: util.MapSlice(args, func(arg BatchItem) observer.BatchItem { return arg.BatchItem })},
 	)
 	defer cancelFunc()
 
@@ -87,19 +97,14 @@ func (adapter PoolAdapter) Execute(
 	return result
 }
 
-// Three possible returns:
-// - uninit, uninit, uninit, non-nil: an error occurred
-// - uninit, value, false, nil: need retry
-// - value, uninit, true, nil: successful
-// "uninit" values must not be used.
 func (adapter PoolAdapter) tryExecute(
 	ctx context.Context,
 	key pprutil.PodProtectorKey,
-	args []BatchArg,
-) retrybatch.ExecuteResult[pprutil.DisruptionResult] {
+	args []BatchItem,
+) retrybatch.ExecuteResult[batchitem.Result] {
 	pprOptional, err := adapter.pprInformer.Get(key)
 	if err != nil {
-		return retrybatch.ExecuteResultErr[pprutil.DisruptionResult](
+		return retrybatch.ExecuteResultErr[batchitem.Result](
 			errors.TagWrapf("GetListerPpr", err, "get ppr from lister"),
 		)
 	}
@@ -107,23 +112,28 @@ func (adapter PoolAdapter) tryExecute(
 	originalPpr, present := pprOptional.Get()
 	if !present {
 		return retrybatch.ExecuteResultSuccess(
-			func(int) pprutil.DisruptionResult { return pprutil.DisruptionResultOk },
+			func(int) batchitem.Result { return batchitem.ResultNoPpr },
 		)
 	}
 
 	ppr := originalPpr.DeepCopy()
-
 	config := adapter.defaultConfig.Compute(optional.Some(ppr.Spec.AdmissionHistoryConfig))
+	pprutil.Summarize(config, ppr)
+
+	results := make([]batchitem.Result, len(args))
+
+	type undeterminedItem struct {
+		podStatus   disruptionquota.PodStatus
+		resultEntry *batchitem.Result
+
+		podName string
+		podUid  types.UID
+		cellId  string
+	}
 
 	executeTime := adapter.clock.Now()
 
-	pprutil.Summarize(config, ppr)
-	quota := pprutil.ComputeDisruptionQuota(ppr.Spec.MinAvailable, config, ppr.Status.Summary)
-
-	initialQuota := quota // value copy
-
-	results := make([]pprutil.DisruptionResult, len(args))
-
+	undetermined := make([]undeterminedItem, 0, len(args))
 	for argIndex, arg := range args {
 		cellStatus := util.GetOrAppend(
 			&ppr.Status.Cells,
@@ -140,47 +150,88 @@ func (adapter PoolAdapter) tryExecute(
 			cellStatus.History.Buckets[duplicateBucket].StartTime = metav1.MicroTime{
 				Time: executeTime,
 			}
-			results[argIndex] = pprutil.DisruptionResultOk // already disrupted
+			results[argIndex] = batchitem.ResultAlreadyHasBucket
 
 			continue
 		}
 
-		result := quota.Disrupt()
-		results[argIndex] = result
-
-		if result == pprutil.DisruptionResultOk {
-			writePodName := ""
-			if adapter.requiresPodName.RequiresPodName(RequiresPodNameArg{CellId: arg.CellId, PodName: arg.PodName}) {
-				writePodName = arg.PodName
-			}
-
-			cellStatus.History.Buckets = append(
-				cellStatus.History.Buckets,
-				podseidonv1a1.PodProtectorAdmissionBucket{
-					StartTime: metav1.MicroTime{Time: executeTime},
-					PodUid:    ptr.To(arg.PodUid),
-					PodName:   writePodName,
-				},
-			)
-		}
+		undetermined = append(undetermined, undeterminedItem{
+			podStatus:   arg.PodStatus,
+			resultEntry: &results[argIndex],
+			podName:     arg.PodName,
+			podUid:      arg.PodUid,
+			cellId:      arg.CellId,
+			// do not leak cellStatus here, since it may become a dangling pointer if ppr.Status.Cells is appended
+		})
 	}
 
-	adapter.observer.ExecuteRetryQuota(ctx, observer.ExecuteRetryQuota{
-		Before: initialQuota,
-		After:  quota,
-	})
+	if len(undetermined) > 0 {
+		state := disruptionquota.MakeState(ppr, config)
+
+		adapter.observer.AdmitBatchState(ctx, observer.AdmitBatchState{
+			PprKey:    key,
+			State:     state,
+			BatchSize: len(undetermined),
+			After:     false,
+		})
+
+		for undeterminedIndex := len(undetermined) - 1; undeterminedIndex >= 0; undeterminedIndex-- {
+			item := undetermined[undeterminedIndex]
+			admitResult := state.AdmitBatchItem(item.podStatus)
+
+			*item.resultEntry = admitResultToBatchItemResult(admitResult)
+
+			if admitResult.ShouldDisrupt() {
+				writePodName := ""
+				if adapter.requiresPodName.RequiresPodName(RequiresPodNameArg{CellId: item.cellId, PodName: item.podName}) {
+					writePodName = item.podName
+				}
+
+				cellIndex := util.FindInSliceWith(
+					ppr.Status.Cells,
+					func(cell podseidonv1a1.PodProtectorCellStatus) bool { return cell.CellId == item.cellId },
+				)
+				cellStatus := &ppr.Status.Cells[cellIndex]
+				cellStatus.History.Buckets = append(
+					cellStatus.History.Buckets,
+					podseidonv1a1.PodProtectorAdmissionBucket{
+						StartTime: metav1.MicroTime{Time: executeTime},
+						PodUid:    ptr.To(item.podUid),
+						PodName:   writePodName,
+					},
+				)
+			}
+		}
+
+		adapter.observer.AdmitBatchState(ctx, observer.AdmitBatchState{
+			PprKey:    key,
+			State:     state,
+			BatchSize: len(undetermined),
+			After:     true,
+		})
+	}
 
 	pprutil.Summarize(config, ppr)
+
+	for argIndex, arg := range args {
+		adapter.observer.ExecuteBatchItem(ctx, observer.ExecuteBatchItem{
+			PodName:         arg.PodName,
+			PodUid:          arg.PodUid,
+			CellId:          arg.CellId,
+			Result:          results[argIndex],
+			HealthCriterion: arg.PodStatus.HealthCriterion,
+		})
+	}
 
 	if !equality.Semantic.DeepEqual(originalPpr, ppr) {
 		if err := adapter.sourceProvider.UpdateStatus(ctx, key.SourceName, ppr); err != nil {
 			if apierrors.IsConflict(err) {
-				return retrybatch.ExecuteResultNeedRetry[pprutil.DisruptionResult](
+				return retrybatch.ExecuteResultNeedRetry[batchitem.Result](
 					adapter.retryBackoff(),
 				)
 			}
 
-			return retrybatch.ExecuteResultErr[pprutil.DisruptionResult](errors.TagWrapf(
+			return retrybatch.ExecuteResultErr[batchitem.Result](errors.TagWrapf(
 				"BatchUpdatePprStatus",
 				err,
 				"unable to update PodProtector status",
@@ -189,6 +240,21 @@ func (adapter PoolAdapter) tryExecute(
 	}
 
 	return retrybatch.ExecuteResultSuccess(
-		func(i int) pprutil.DisruptionResult { return results[i] },
+		func(i int) batchitem.Result { return results[i] },
 	)
+}
+
+func admitResultToBatchItemResult(result disruptionquota.Result) batchitem.Result {
+	switch result {
+	case disruptionquota.DisruptionResultOk:
+		return batchitem.ResultNewDisruption
+	case disruptionquota.DisruptionResultAlreadyUnhealthy:
+		return batchitem.ResultAlreadyUnhealthy
+	case disruptionquota.DisruptionResultRetry:
+		return batchitem.ResultNeedRetry
+	case disruptionquota.DisruptionResultDenied:
+		return batchitem.ResultRejected
+	default:
+		return 0 // GIGO
+	}
 }

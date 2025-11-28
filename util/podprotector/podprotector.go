@@ -15,7 +15,6 @@
 package pprutil
 
 import (
-	"fmt"
 	"sort"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -120,87 +119,5 @@ func CompactBuckets(
 		copyCount := len(*buckets) - 1 - delta
 		copy((*buckets)[1:copyCount+1], (*buckets)[delta+1:])
 		*buckets = (*buckets)[:copyCount+1]
-	}
-}
-
-func ComputeDisruptionQuota(
-	minAvailable int32,
-	config defaultconfig.Computed,
-	summary podseidonv1a1.PodProtectorStatusSummary,
-) DisruptionQuota {
-	var quota DisruptionQuota
-
-	switch {
-	case summary.AggregatedAvailable < minAvailable: // Case 1: est < agg < min
-		quota = DisruptionQuota{Cleared: 0, Transitional: 0}
-	case summary.EstimatedAvailable < minAvailable: // Case 2: est < min < agg
-		quota = DisruptionQuota{
-			Cleared:      0,
-			Transitional: summary.AggregatedAvailable - minAvailable,
-		}
-	default: // Case 3: min < est < agg
-		quota = DisruptionQuota{
-			Cleared:      summary.EstimatedAvailable - minAvailable,
-			Transitional: summary.AggregatedAvailable - summary.EstimatedAvailable,
-		}
-	}
-
-	if config.MaxConcurrentLag > 0 {
-		// number of entries available in the admission history
-		admissionQuota := max(
-			0,
-			config.MaxConcurrentLag-(summary.AggregatedAvailable-summary.EstimatedAvailable),
-		)
-
-		if quota.Cleared > admissionQuota {
-			delta := quota.Cleared - admissionQuota
-			quota.Cleared = admissionQuota
-			quota.Transitional += delta
-		}
-	}
-
-	return quota
-}
-
-type DisruptionQuota struct {
-	// Number of replicas that can be disrupted without any risk.
-	Cleared int32
-	// Number of replicas that cannot be disrupted due to admission history,
-	// but can be disrupted if admission history is emptied.
-	Transitional int32
-}
-
-func (quota *DisruptionQuota) Disrupt() DisruptionResult {
-	if quota.Cleared > 0 {
-		quota.Cleared--
-		return DisruptionResultOk
-	}
-
-	if quota.Transitional > 0 {
-		quota.Transitional--
-		return DisruptionResultRetry
-	}
-
-	return DisruptionResultDenied
-}
-
-type DisruptionResult uint8
-
-const (
-	DisruptionResultOk = DisruptionResult(iota)
-	DisruptionResultRetry
-	DisruptionResultDenied
-)
-
-func (result DisruptionResult) String() string {
-	switch result {
-	case DisruptionResultOk:
-		return "Ok"
-	case DisruptionResultRetry:
-		return "Retry"
-	case DisruptionResultDenied:
-		return "Denied"
-	default:
-		panic(fmt.Sprintf("unknown enum value %#v", result))
 	}
 }

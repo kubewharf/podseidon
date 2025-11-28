@@ -45,6 +45,7 @@ import (
 	"github.com/kubewharf/podseidon/util/labelindex"
 	"github.com/kubewharf/podseidon/util/o11y"
 	"github.com/kubewharf/podseidon/util/optional"
+	podutil "github.com/kubewharf/podseidon/util/pod"
 	pprutil "github.com/kubewharf/podseidon/util/podprotector"
 	"github.com/kubewharf/podseidon/util/util"
 	"github.com/kubewharf/podseidon/util/worker"
@@ -780,19 +781,21 @@ func aggregateStatus(
 	availableReplicas := int32(0)
 
 	for _, pod := range relevantPods {
-		if isPodConditionTrue(pod, corev1.PodReady) {
-			readyReplicas++
-		}
+		podStatus := podutil.GetPodStatus(clk, pod, ppr.Spec.MinReadySeconds, requeue)
 
-		if isPodConditionTrue(pod, corev1.PodScheduled) {
+		if podStatus.IsScheduled {
 			scheduledReplicas++
 		}
 
-		if pod.Status.Phase == corev1.PodRunning {
+		if podStatus.IsRunning {
 			runningReplicas++
 		}
 
-		if isPodAvailable(clk, pod, ppr.Spec.MinReadySeconds, requeue) {
+		if podStatus.IsReady {
+			readyReplicas++
+		}
+
+		if podStatus.IsAvailable {
 			availableReplicas++
 		}
 	}
@@ -811,59 +814,6 @@ func aggregateStatus(
 	})
 
 	return nil
-}
-
-func isPodConditionTrue(
-	pod *corev1.Pod,
-	conditionType corev1.PodConditionType,
-) bool {
-	return iter.Any(iter.Map(
-		iter.FromSlice(pod.Status.Conditions),
-		func(condition corev1.PodCondition) bool {
-			return condition.Type == conditionType && condition.Status == corev1.ConditionTrue
-		},
-	))
-}
-
-// Tests if a pod is available.
-// Sets requeue to a shorter period if the availability state is going to change.
-func isPodAvailable(
-	clk clock.Clock,
-	pod *corev1.Pod,
-	minReadySeconds int32,
-	requeue *optional.Optional[time.Duration],
-) bool {
-	if !pod.DeletionTimestamp.IsZero() {
-		return false // terminating
-	}
-
-	readyConditionIndex := util.FindInSliceWith(
-		pod.Status.Conditions,
-		func(condition corev1.PodCondition) bool { return condition.Type == corev1.PodReady },
-	)
-	if readyConditionIndex == -1 {
-		return false // readiness unknown
-	}
-
-	readyCondition := pod.Status.Conditions[readyConditionIndex]
-	if readyCondition.Status != corev1.ConditionTrue {
-		return false // not ready
-	}
-
-	readyTime := clk.Since(readyCondition.LastTransitionTime.Time)
-	minReadyDuration := time.Duration(minReadySeconds) * time.Second
-
-	if readyTime < minReadyDuration {
-		readyIn := minReadyDuration - readyTime
-		requeue.SetOrFn(
-			readyIn,
-			func(base, increment time.Duration) time.Duration { return min(base, increment) },
-		)
-
-		return false
-	}
-
-	return true
 }
 
 // Clean up obsolete admission history observed by the current aggregation.

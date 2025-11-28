@@ -48,6 +48,14 @@ func (v Optional[T]) IsSome() bool { return v.isSome }
 // Checks whether the optional is a `None` instead of a `Some`.
 func (v Optional[T]) IsNone() bool { return !v.isSome }
 
+func (v Optional[T]) String() string {
+	if v.isSome {
+		return fmt.Sprintf("Some(%v)", v.value)
+	}
+
+	return "None"
+}
+
 func (v Optional[T]) GoString() string {
 	if v.isSome {
 		return fmt.Sprintf("Some(%#v)", v.value)

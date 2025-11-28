@@ -130,6 +130,64 @@ the following options are available for seamless adoption:
 
 ## Maintenance
 
+### Bypassing protection
+
+Adding the following annotation to a pod makes Podseidon "dry-run" the validation instead,
+thus validation and metrics would execute normally for the pod
+but the pod will never be actually rejected from deletion:
+
+```text
+podseidon.kubewharf.io/force-delete
+```
+
+Alternatively, apply the following annotations to a pod
+to change the health criterion to the respective criteria,
+so that Podseidon interprets `minAvailable` as "min scheduled/running/ready" instead:
+
+```yaml
+podseidon.kubewharf.io/health-criterion: Scheduled
+podseidon.kubewharf.io/health-criterion: Running
+podseidon.kubewharf.io/health-criterion: Ready
+```
+
+When unspecified, the health criterion is based on the number of available pods
+(with min ready seconds included).
+
+Podseidon always allows deletion of a pod that does not contribute to its own health criterion,
+but does not take stronger criteria into account.
+Thus, changing the health criterion to a stronger or weaker option could affect this behavior.
+For example, if a pod has health criterion `Ready` and is not ready,
+Podseidon never rejects deleting this pod.
+But if the health criterion of the same pod is changed to `Scheduled`
+and it is scheduled (but not ready),
+and if the number of scheduled pods is less than the `minAvailable` threshold,
+the pod is no longer allowed to be deleted,
+This behavior may be surprising as downgrading to a "weaker" criterion
+does not necessarily narrow the set of rejected pods to
+a strict subset of when a stronger criterion is used.
+
+When the deletion is executed through the eviction API,
+the annotation may be applied on the Eviction object instead.
+The following example request forces the eviction to be evaluated through running pods:
+
+```sh
+kubectl create --raw /api/v1/namespaces/default/pods/pod-name/eviction -f <<EOF
+{
+  "apiVersion": "policy/v1",
+  "kind": "Eviction",
+  "metadata": {
+    "name": "pod-name",
+    "annotations": {
+      "podseidon.kubewharf.io/health-criterion": "Running"
+    }
+  }
+}
+EOF
+```
+
+If both Eviction and Pod have the annotation,
+the annotation of Eviction overrides that of Pod.
+
 ### Monitoring
 
 Each container exposes Prometheus metrics over HTTP at port 9090.

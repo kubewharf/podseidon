@@ -24,3 +24,9 @@ componentsPatches:
         hostPath: /var/test-output/NAMESPACE/k8s-audit
         mountPath: /var/log/k8s-audit
         type: File
+---
+apiVersion: config.kwok.x-k8s.io/v1alpha1
+kind: KwokConfiguration
+options:
+  manageAllNodes: false
+  manageNodesWithLabelSelector: managed-by=kwok

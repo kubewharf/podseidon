@@ -24,9 +24,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 
 	podseidonv1a1 "github.com/kubewharf/podseidon/apis/v1alpha1"
 
+	"github.com/kubewharf/podseidon/util/optional"
 	"github.com/kubewharf/podseidon/util/util"
 
 	"github.com/kubewharf/podseidon/tests/provision"
@@ -157,6 +159,28 @@ func MarkPodAsReady(
 	podId testutil.PodId,
 	readyTime time.Time,
 ) {
+	MarkPodConditions(ctx, env, podId, PodConditions{
+		Phase:       corev1.PodRunning,
+		Scheduled:   optional.Some(readyTime),
+		Initialized: optional.Some(readyTime),
+		Ready:       optional.Some(readyTime),
+	})
+}
+
+type PodConditions struct {
+	Phase corev1.PodPhase
+
+	Scheduled   optional.Optional[time.Time]
+	Initialized optional.Optional[time.Time]
+	Ready       optional.Optional[time.Time]
+}
+
+func MarkPodConditions(
+	ctx context.Context,
+	env *provision.Env,
+	podId testutil.PodId,
+	podConditions PodConditions,
+) {
 	err := env.PodClient(podId.Cluster).
 		Bind(ctx, &corev1.Binding{
 			ObjectMeta: metav1.ObjectMeta{
@@ -173,31 +197,41 @@ func MarkPodAsReady(
 		pod, err := env.PodClient(podId.Cluster).Get(ctx, podId.PodName(), metav1.GetOptions{})
 		gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
-		updatePodCondition(pod, corev1.PodInitialized, "True", readyTime)
-		updatePodCondition(pod, corev1.ContainersReady, "True", readyTime)
-		updatePodCondition(pod, corev1.PodReady, "True", readyTime)
-		updatePodCondition(pod, corev1.PodScheduled, "True", readyTime)
-		pod.Status.Phase = corev1.PodRunning
+		updatePodCondition(pod, corev1.PodInitialized, podConditions.Initialized)
+		updatePodCondition(pod, corev1.ContainersReady, podConditions.Ready)
+		updatePodCondition(pod, corev1.PodReady, podConditions.Ready)
+		updatePodCondition(pod, corev1.PodScheduled, podConditions.Scheduled)
+		pod.Status.Phase = podConditions.Phase
+
+		pod.Status.ContainerStatuses = []corev1.ContainerStatus{{
+			Name:    "main",
+			Ready:   podConditions.Ready.IsSome(),
+			Started: ptr.To(true),
+		}}
+
 		_, err = env.PodClient(podId.Cluster).UpdateStatus(ctx, pod, metav1.UpdateOptions{})
 		return err
 	})
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 }
 
-//nolint:unparam // status is currently always True, but extracting it does not improve anything.
 func updatePodCondition(
 	pod *corev1.Pod,
 	conditionType corev1.PodConditionType,
-	status corev1.ConditionStatus,
-	readyTime time.Time,
+	transitionTime optional.Optional[time.Time],
 ) {
 	condition := util.GetOrAppendSliceWith(
 		&pod.Status.Conditions,
 		func(condition *corev1.PodCondition) bool { return condition.Type == conditionType },
 		func() corev1.PodCondition { return corev1.PodCondition{Type: conditionType} },
 	)
-	condition.Status = status
-	condition.LastTransitionTime = metav1.NewTime(readyTime)
+
+	if transitionTime, transitioned := transitionTime.Get(); transitioned {
+		condition.Status = corev1.ConditionTrue
+		condition.LastTransitionTime.Time = transitionTime
+	} else {
+		condition.Status = corev1.ConditionFalse
+	}
 }
 
 func TryDeleteAllPodsIn(ctx context.Context, env *provision.Env, cluster testutil.ClusterId) error {
@@ -207,4 +241,14 @@ func TryDeleteAllPodsIn(ctx context.Context, env *provision.Env, cluster testuti
 				MatchLabels: map[string]string{TestPodLabelKey: env.Namespace},
 			}),
 		})
+}
+
+func UpdatePod(ctx context.Context, env *provision.Env, podId testutil.PodId, mutateFn func(*corev1.Pod)) {
+	pod, err := env.PodClient(podId.Cluster).Get(ctx, podId.PodName(), metav1.GetOptions{})
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+
+	mutateFn(pod)
+
+	_, err = env.PodClient(podId.Cluster).Update(ctx, pod, metav1.UpdateOptions{})
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 }

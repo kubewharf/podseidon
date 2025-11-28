@@ -38,7 +38,7 @@ func ProvideLogging() component.Declared[Observer] {
 		func(util.Empty) Observer {
 			type executeRetryArgsCtxKey struct{}
 
-			type executeRetryArgsCtxValue struct{ args []BatchArg }
+			type executeRetryArgsCtxValue struct{ batchSize int }
 
 			return Observer{
 				HttpRequest: func(ctx context.Context, arg Request) (context.Context, context.CancelFunc) {
@@ -91,7 +91,7 @@ func ProvideLogging() component.Declared[Observer] {
 					cellCounts := iter.Histogram(
 						iter.Map(
 							iter.FromSlice(arg.Args),
-							func(arg BatchArg) string { return arg.CellId },
+							func(arg BatchItem) string { return arg.CellId },
 						),
 					)
 
@@ -104,7 +104,7 @@ func ProvideLogging() component.Declared[Observer] {
 					ctx = context.WithValue(
 						ctx,
 						executeRetryArgsCtxKey{},
-						executeRetryArgsCtxValue{args: arg.Args},
+						executeRetryArgsCtxValue{batchSize: len(arg.Args)},
 					)
 
 					return klog.NewContext(ctx, logger), util.NoOp
@@ -112,9 +112,9 @@ func ProvideLogging() component.Declared[Observer] {
 				EndExecuteRetrySuccess: func(ctx context.Context, arg EndExecuteRetrySuccess) {
 					logger := klog.FromContext(ctx)
 
-					retryArgs := ctx.Value(executeRetryArgsCtxKey{}).(executeRetryArgsCtxValue).args
+					batchSize := ctx.Value(executeRetryArgsCtxKey{}).(executeRetryArgsCtxValue).batchSize
 
-					results := iter.Histogram(iter.Map(iter.Range(0, len(retryArgs)), arg.Results))
+					results := iter.Histogram(iter.Map(iter.Range(0, batchSize), arg.Results))
 
 					for result, count := range results {
 						logger = logger.WithValues(fmt.Sprintf("result.%v", result), count)
@@ -133,14 +133,39 @@ func ProvideLogging() component.Declared[Observer] {
 					logger := klog.FromContext(ctx)
 					logger.WithCallDepth(1).Error(arg.Err, "ppr update batch error")
 				},
-				ExecuteRetryQuota: func(ctx context.Context, arg ExecuteRetryQuota) {
+				AdmitBatchState: func(ctx context.Context, arg AdmitBatchState) {
 					logger := klog.FromContext(ctx)
-					logger.WithValues(
-						"quota.before.cleared", arg.Before.Cleared,
-						"quota.before.transitional", arg.Before.Transitional,
-						"quota.after.cleared", arg.After.Cleared,
-						"quota.after.transitional", arg.After.Transitional,
-					).V(4).WithCallDepth(1).Info("quota change")
+					var when string
+					if arg.After {
+						when = "after"
+					} else {
+						when = "before"
+					}
+					logger.WithCallDepth(1).V(4).Info(
+						"admit batch quota",
+						"when", when,
+						"ppr.source", arg.PprKey.SourceName,
+						"ppr.namespace", arg.PprKey.Namespace,
+						"ppr.name", arg.PprKey.Name,
+						"batchSize", arg.BatchSize,
+						"state.scheduled", arg.State.Scheduled,
+						"state.running", arg.State.Running,
+						"state.ready", arg.State.Ready,
+						"state.available", arg.State.Available,
+						"state.threshold.reject", arg.State.Threshold.Reject,
+						"state.threshold.retry", arg.State.Threshold.Retry,
+						"state.threshold.remaining", arg.State.Threshold.Remaining.String(),
+					)
+				},
+				ExecuteBatchItem: func(ctx context.Context, arg ExecuteBatchItem) {
+					logger := klog.FromContext(ctx)
+					logger.WithCallDepth(1).V(4).Info(
+						"execute batch item",
+						"cell", arg.CellId,
+						"pod", arg.PodName,
+						"criterion", arg.HealthCriterion.String(),
+						"result", arg.Result,
+					)
 				},
 			}
 		},

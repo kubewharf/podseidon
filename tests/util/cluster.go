@@ -56,8 +56,8 @@ func (id ClusterId) String() string {
 	return fmt.Sprintf("worker-%d", uint32(id))
 }
 
-func (id ClusterId) KwokName(namespace string) string {
-	return fmt.Sprintf("%s-%s", namespace, id.String())
+func (id ClusterId) KwokName(hash uint32) string {
+	return fmt.Sprintf("%d-%s", hash, id.String())
 }
 
 func (id ClusterId) Index() int { return int(id) }
