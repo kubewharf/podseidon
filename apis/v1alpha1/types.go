@@ -118,6 +118,7 @@ type PodProtectorAggregation struct {
 	RunningReplicas int32 `json:"runningReplicas,omitempty"`
 
 	// Timestamp of the last event observed by the pod reflector of the aggregator when this snapshot was written.
+	// +optional
 	LastEventTime metav1.MicroTime `json:"lastEventTime"`
 }
 
