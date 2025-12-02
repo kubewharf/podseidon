@@ -270,7 +270,6 @@ spec:
                           type: integer
                       required:
                       - availableReplicas
-                      - lastEventTime
                       - totalReplicas
                       type: object
                     cellID:

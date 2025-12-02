@@ -16,6 +16,7 @@ package pprutil
 
 import (
 	"sort"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -60,9 +61,11 @@ func Summarize(config defaultconfig.Computed, ppr *podseidonv1a1.PodProtector) {
 		CompactBuckets(config, &cell.History.Buckets)
 
 		if len(cell.History.Buckets) > 0 {
-			lagDuration := cell.History.Buckets[len(cell.History.Buckets)-1].StartTime.Sub(
-				cell.Aggregation.LastEventTime.Time,
-			)
+			lagDuration := time.Duration(0)
+			if lastEventTime := cell.Aggregation.LastEventTime.Time; !lastEventTime.IsZero() {
+				lastBucket := cell.History.Buckets[len(cell.History.Buckets)-1]
+				lagDuration = lastBucket.StartTime.Sub(lastEventTime)
+			}
 			summary.MaxLatencyMillis = max(
 				summary.MaxLatencyMillis,
 				lagDuration.Milliseconds(),
