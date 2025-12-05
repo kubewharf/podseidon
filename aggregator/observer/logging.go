@@ -72,12 +72,12 @@ func NewLoggingObserver() Observer {
 		NextEventPoolSingleDrain:    nil,
 		TriggerPodCreate: func(ctx context.Context, arg TriggerPodCreate) {
 			if arg.Err != nil {
-				klog.FromContext(ctx).Error(arg.Err, "error creating update-trigger pod")
+				klog.FromContext(ctx).Error(arg.Err, "error creating update-trigger pod", o11yklog.ErrTagKvs(arg.Err)...)
 			}
 		},
 		TriggerPodUpdate: func(ctx context.Context, arg TriggerPodUpdate) {
 			if arg.Err != nil {
-				klog.FromContext(ctx).Error(arg.Err, "error updating update-trigger pod")
+				klog.FromContext(ctx).Error(arg.Err, "error updating update-trigger pod", o11yklog.ErrTagKvs(arg.Err)...)
 			}
 		},
 	}

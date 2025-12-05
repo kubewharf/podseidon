@@ -15,6 +15,7 @@
 package errors
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -92,6 +93,13 @@ func recurseScanTags(err error, tags *[]string) {
 
 	if statusErr, isStatusErr := err.(apierrors.APIStatus); isStatusErr {
 		*tags = append(*tags, string(statusErr.Status().Reason))
+	}
+
+	if Is(err, context.Canceled) {
+		*tags = append(*tags, "ContextCancel")
+	}
+	if Is(err, context.DeadlineExceeded) {
+		*tags = append(*tags, "ContextTimeout")
 	}
 
 	var children []error
