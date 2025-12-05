@@ -60,7 +60,7 @@ func ProvideLogging() component.Declared[Observer] {
 					logger.V(4).WithCallDepth(1).Info("webhook request completed")
 				},
 				HttpError: func(ctx context.Context, arg HttpError) {
-					klog.FromContext(ctx).WithCallDepth(1).Error(arg.Err, "HTTP error")
+					klog.FromContext(ctx).WithCallDepth(1).Error(arg.Err, "HTTP error", o11yklog.ErrTagKvs(arg.Err)...)
 				},
 				StartHandlePodInPpr: func(ctx context.Context, arg StartHandlePodInPpr) (context.Context, context.CancelFunc) {
 					logger := klog.FromContext(ctx)
@@ -131,7 +131,7 @@ func ProvideLogging() component.Declared[Observer] {
 				},
 				EndExecuteRetryErr: func(ctx context.Context, arg EndExecuteRetryErr) {
 					logger := klog.FromContext(ctx)
-					logger.WithCallDepth(1).Error(arg.Err, "ppr update batch error")
+					logger.WithCallDepth(1).Error(arg.Err, "ppr update batch error", o11yklog.ErrTagKvs(arg.Err)...)
 				},
 				AdmitBatchState: func(ctx context.Context, arg AdmitBatchState) {
 					logger := klog.FromContext(ctx)

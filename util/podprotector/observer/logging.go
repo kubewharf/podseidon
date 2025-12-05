@@ -41,7 +41,7 @@ func ProvideInformerLogging() component.Declared[IndexedInformerObserver] {
 				HandleEventError: func(ctx context.Context, arg HandleEventError) {
 					klog.FromContext(ctx).
 						WithCallDepth(1).
-						Error(arg.Err, "handle reflector event", "namespace", arg.Namespace, "name", arg.Name)
+						Error(arg.Err, "handle reflector event", append(o11yklog.ErrTagKvs(arg.Err), "namespace", arg.Namespace, "name", arg.Name)...)
 				},
 				UpdateSourceList: func(ctx context.Context, arg UpdateSourceList) {
 					if arg.Additions != 0 || arg.Removals != 0 {
@@ -53,7 +53,7 @@ func ProvideInformerLogging() component.Declared[IndexedInformerObserver] {
 					}
 				},
 				UpdateSourceListError: func(ctx context.Context, arg UpdateSourceListError) {
-					klog.FromContext(ctx).WithCallDepth(1).Error(arg.Err, "updating source list")
+					klog.FromContext(ctx).WithCallDepth(1).Error(arg.Err, "updating source list", o11yklog.ErrTagKvs(arg.Err)...)
 				},
 			}
 		},

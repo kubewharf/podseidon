@@ -36,7 +36,7 @@ func ProvideLogging() component.Declared[Observer] {
 				CheckFailed: func(ctx context.Context, arg CheckFailed) {
 					logger := klog.FromContext(ctx)
 					logger.WithCallDepth(1).
-						Error(arg.Err, "health check failed", "check", arg.CheckName)
+						Error(arg.Err, "health check failed", append(o11yklog.ErrTagKvs(arg.Err), "check", arg.CheckName)...)
 				},
 			}
 		},
