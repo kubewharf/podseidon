@@ -73,7 +73,7 @@ webhook-requires-pod-name.by-cell-filter: {{get $requiresPodName "by-cell" | toJ
 {{- end}}
 
 {{- define "podseidon.webhook.ports.yaml"}}
-- webhook: 8080
+- webhook: {{ternary 8843 8080 .main.Values.webhook.tls.custom | toJson}}
 - pprof: 6060
 - healthz: 8081
 - metrics: 9090
@@ -88,7 +88,7 @@ metadata:
 spec:
   ports:
     - name: webhook
-      port: 8080
+      port: {{ternary 8843 8080 .main.Values.webhook.tls.custom | toJson}}
       protocol: TCP
   selector: {{include "podseidon.boilerplate.label-selector.yaml" . | fromYaml | toJson}}
 {{- end}}
@@ -129,7 +129,7 @@ webhooks:
         namespace: {{toJson .main.Release.Namespace}}
         name: {{printf "%s-webhook" .main.Release.Name | toJson}}
         path: {{printf "%s/%s" .main.Values.webhook.pathPrefix .main.Values.release.workerCellId | toJson}}
-        port: 8080
+        port: {{ternary 8843 8080 .main.Values.webhook.tls.custom | toJson}}
       {{- end}}
     admissionReviewVersions: ["v1"]
     sideEffects: NoneOnDryRun
