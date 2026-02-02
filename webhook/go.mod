@@ -15,11 +15,11 @@ require (
 
 require (
 	github.com/alecthomas/repr v0.4.0 // indirect
-	github.com/axiomhq/hyperloglog v0.2.5 // indirect
+	github.com/axiomhq/hyperloglog v0.2.6 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dgryski/go-metro v0.0.0-20180109044635-280f6062b5bc // indirect
+	github.com/dgryski/go-metro v0.0.0-20250106013310-edb8663e5e33 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -33,7 +33,7 @@ require (
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kamstrup/intmap v0.5.1 // indirect
+	github.com/kamstrup/intmap v0.5.2 // indirect
 	github.com/kubewharf/podseidon/client v0.0.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
