@@ -34,7 +34,7 @@ jobs:
       - name: Run e2e tests
         run: ssh-agent earthly -P +e2e --PARALLELISM='--procs 2'
       - name: Upload logs
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: output
           path: output
