@@ -119,7 +119,7 @@ type PodProtectorAggregation struct {
 
 	// Timestamp of the last event observed by the pod reflector of the aggregator when this snapshot was written.
 	// +optional
-	LastEventTime metav1.MicroTime `json:"lastEventTime,omitempty"`
+	LastEventTime metav1.MicroTime `json:"lastEventTime,omitzero"`
 }
 
 type PodProtectorAdmissionHistory struct {
