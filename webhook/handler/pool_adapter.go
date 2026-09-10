@@ -135,24 +135,26 @@ func (adapter PoolAdapter) tryExecute(
 
 	undetermined := make([]undeterminedItem, 0, len(args))
 	for argIndex, arg := range args {
-		cellStatus := util.GetOrAppend(
-			&ppr.Status.Cells,
-			func(cell *podseidonv1a1.PodProtectorCellStatus) bool { return cell.CellId == arg.CellId },
+		cellIndex := util.FindInSliceWith(
+			ppr.Status.Cells,
+			func(cell podseidonv1a1.PodProtectorCellStatus) bool { return cell.CellId == arg.CellId },
 		)
+		if cellIndex != -1 {
+			cellStatus := &ppr.Status.Cells[cellIndex]
+			duplicateBucket := util.FindInSliceWith(
+				cellStatus.History.Buckets,
+				func(bucket podseidonv1a1.PodProtectorAdmissionBucket) bool {
+					return bucket.PodUid != nil && *bucket.PodUid == arg.PodUid
+				},
+			)
+			if duplicateBucket != -1 {
+				cellStatus.History.Buckets[duplicateBucket].StartTime = metav1.MicroTime{
+					Time: executeTime,
+				}
+				results[argIndex] = batchitem.ResultAlreadyHasBucket
 
-		duplicateBucket := util.FindInSliceWith(
-			cellStatus.History.Buckets,
-			func(bucket podseidonv1a1.PodProtectorAdmissionBucket) bool {
-				return bucket.PodUid != nil && *bucket.PodUid == arg.PodUid
-			},
-		)
-		if duplicateBucket != -1 {
-			cellStatus.History.Buckets[duplicateBucket].StartTime = metav1.MicroTime{
-				Time: executeTime,
+				continue
 			}
-			results[argIndex] = batchitem.ResultAlreadyHasBucket
-
-			continue
 		}
 
 		undetermined = append(undetermined, undeterminedItem{
@@ -187,11 +189,13 @@ func (adapter PoolAdapter) tryExecute(
 					writePodName = item.podName
 				}
 
-				cellIndex := util.FindInSliceWith(
-					ppr.Status.Cells,
-					func(cell podseidonv1a1.PodProtectorCellStatus) bool { return cell.CellId == item.cellId },
+				cellStatus := util.GetOrAppendSliceWith(
+					&ppr.Status.Cells,
+					func(cell *podseidonv1a1.PodProtectorCellStatus) bool { return cell.CellId == item.cellId },
+					func() podseidonv1a1.PodProtectorCellStatus {
+						return podseidonv1a1.PodProtectorCellStatus{CellId: item.cellId}
+					},
 				)
-				cellStatus := &ppr.Status.Cells[cellIndex]
 				cellStatus.History.Buckets = append(
 					cellStatus.History.Buckets,
 					podseidonv1a1.PodProtectorAdmissionBucket{
