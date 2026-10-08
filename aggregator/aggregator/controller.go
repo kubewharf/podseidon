@@ -415,7 +415,7 @@ func createPodInformer(
 
 	if err := informer.SetTransform(func(obj any) (any, error) {
 		if pod, isPod := obj.(*corev1.Pod); isPod {
-			pod.Spec = corev1.PodSpec{} // avoid keeping unused pod spec in memory
+			pod.Spec = corev1.PodSpec{NodeName: pod.Spec.NodeName}
 		}
 		return obj, nil
 	}); err != nil {
@@ -812,7 +812,7 @@ func aggregateStatus(
 
 		if pod.Status.Phase == corev1.PodPending {
 			pendingReplicas++
-			if !podStatus.IsScheduled {
+			if pod.Spec.NodeName == "" {
 				unscheduledPendingReplicas++
 			}
 		}

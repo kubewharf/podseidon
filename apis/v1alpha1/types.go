@@ -123,7 +123,7 @@ type PodProtectorAggregation struct {
 	// +kubebuilder:validation:Minimum=0
 	PendingReplicas *int32 `json:"pendingReplicas,omitempty"`
 	// Number of pods selected by this PodProtector that are currently in Pending phase
-	// and do not have a true PodScheduled condition when observed by aggregator.
+	// and have no node assignment when observed by aggregator.
 	// Pods may be selected by multiple PodProtectors, so this value must not be summed across PodProtectors.
 	// A nil value means that the aggregator has not reported this field.
 	// +optional

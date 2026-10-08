@@ -58,6 +58,7 @@ func TestReconcileEmpty(t *testing.T) {
 				ReadyFor:        optional.Some(time.Second),
 				Phase:           corev1.PodRunning,
 				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 0,
 		},
 		ExpectInitial: ExpectState{
@@ -92,6 +93,7 @@ func TestReconcileAllAvailable(t *testing.T) {
 				ReadyFor:        optional.Some(time.Second),
 				Phase:           corev1.PodRunning,
 				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 5,
 		},
 		ExpectInitial: ExpectState{
@@ -126,6 +128,7 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 				ReadyFor:        optional.Some(time.Second),
 				Phase:           corev1.PodRunning,
 				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 2,
 			{
 				IsDeleted:       false,
@@ -133,6 +136,7 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 				ReadyFor:        optional.Some(time.Second * 5),
 				Phase:           corev1.PodRunning,
 				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 3,
 			{
 				IsDeleted:       true,
@@ -140,6 +144,7 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 				ReadyFor:        optional.Some(time.Second * 5),
 				Phase:           corev1.PodRunning,
 				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 2,
 		},
 		ExpectInitial: ExpectState{
@@ -191,14 +196,16 @@ func TestReconcilePendingReplicas(t *testing.T) {
 				IsAggregateOnly: false,
 				ReadyFor:        optional.None[time.Duration](),
 				Phase:           corev1.PodPending,
-				IsUnscheduled:   true,
+				IsUnscheduled:   false,
+				NodeName:        "",
 			}: 2,
 			{
 				IsDeleted:       false,
 				IsAggregateOnly: false,
 				ReadyFor:        optional.None[time.Duration](),
 				Phase:           corev1.PodPending,
-				IsUnscheduled:   false,
+				IsUnscheduled:   true,
+				NodeName:        "worker-1",
 			}: 3,
 			{
 				IsDeleted:       false,
@@ -206,6 +213,7 @@ func TestReconcilePendingReplicas(t *testing.T) {
 				ReadyFor:        optional.None[time.Duration](),
 				Phase:           corev1.PodRunning,
 				IsUnscheduled:   true,
+				NodeName:        "",
 			}: 4,
 			{
 				IsDeleted:       false,
@@ -213,6 +221,7 @@ func TestReconcilePendingReplicas(t *testing.T) {
 				ReadyFor:        optional.None[time.Duration](),
 				Phase:           corev1.PodRunning,
 				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 1,
 			{
 				IsDeleted:       true,
@@ -220,6 +229,7 @@ func TestReconcilePendingReplicas(t *testing.T) {
 				ReadyFor:        optional.None[time.Duration](),
 				Phase:           corev1.PodPending,
 				IsUnscheduled:   true,
+				NodeName:        "",
 			}: 2,
 		},
 		ExpectInitial: ExpectState{
@@ -230,7 +240,7 @@ func TestReconcilePendingReplicas(t *testing.T) {
 				MaxLatencyMillis:    0,
 				EstimatedAvailable:  0,
 				AggregatedReady:     0,
-				AggregatedScheduled: 4,
+				AggregatedScheduled: 3,
 				AggregatedRunning:   5,
 			},
 			AssertPendingReplicas:      true,
@@ -247,6 +257,7 @@ type PodSetup struct {
 	ReadyFor        optional.Optional[time.Duration]
 	Phase           corev1.PodPhase
 	IsUnscheduled   bool
+	NodeName        string
 }
 
 func (setup PodSetup) makePod(clk clock.Clock) *corev1.Pod {
@@ -263,6 +274,7 @@ func (setup PodSetup) makePod(clk clock.Clock) *corev1.Pod {
 				"triggersWebhook": fmt.Sprint(!setup.IsAggregateOnly),
 			},
 		},
+		Spec: corev1.PodSpec{NodeName: setup.NodeName},
 		Status: corev1.PodStatus{
 			Conditions: []corev1.PodCondition{
 				{
