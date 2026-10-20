@@ -56,13 +56,34 @@ func TestPoolAdapterCellInitialization(t *testing.T) {
 		unhealthy     bool
 		result        batchitem.Result
 	}{
-		{name: "rejected", result: batchitem.ResultRejected},
-		{name: "retry", initialCellID: optional.Some(otherCell), available: 2, result: batchitem.ResultNeedRetry},
-		{name: "admitted", initialCellID: optional.Some(otherCell), available: 8, result: batchitem.ResultNewDisruption},
-		{name: "unhealthy", unhealthy: true, result: batchitem.ResultAlreadyUnhealthy},
-		{name: "existing-cell", initialCellID: optional.Some(firstCell), unhealthy: true, result: batchitem.ResultAlreadyUnhealthy},
-		{name: "historical-empty-cell", initialCellID: optional.Some(""), result: batchitem.ResultRejected},
-		{name: "admitted-with-empty-cell", initialCellID: optional.Some(""), unhealthy: true, result: batchitem.ResultAlreadyUnhealthy},
+		{
+			name: "rejected", initialCellID: optional.None[string](),
+			available: 0, unhealthy: false, result: batchitem.ResultRejected,
+		},
+		{
+			name: "retry", initialCellID: optional.Some(otherCell),
+			available: 2, unhealthy: false, result: batchitem.ResultNeedRetry,
+		},
+		{
+			name: "admitted", initialCellID: optional.Some(otherCell),
+			available: 8, unhealthy: false, result: batchitem.ResultNewDisruption,
+		},
+		{
+			name: "unhealthy", initialCellID: optional.None[string](),
+			available: 0, unhealthy: true, result: batchitem.ResultAlreadyUnhealthy,
+		},
+		{
+			name: "existing-cell", initialCellID: optional.Some(firstCell),
+			available: 0, unhealthy: true, result: batchitem.ResultAlreadyUnhealthy,
+		},
+		{
+			name: "historical-empty-cell", initialCellID: optional.Some(""),
+			available: 0, unhealthy: false, result: batchitem.ResultRejected,
+		},
+		{
+			name: "admitted-with-empty-cell", initialCellID: optional.Some(""),
+			available: 0, unhealthy: true, result: batchitem.ResultAlreadyUnhealthy,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -89,7 +110,12 @@ func TestPoolAdapterCellInitialization(t *testing.T) {
 			}
 			allow := test.result == batchitem.ResultNewDisruption || test.result == batchitem.ResultAlreadyUnhealthy
 
-			store := &adapterPprStore{ppr: ppr}
+			store := &adapterPprStore{
+				IndexedInformer: nil,
+				SourceProvider:  nil,
+				ppr:             ppr,
+				writes:          0,
+			}
 			adapter := PoolAdapter{
 				sourceProvider:  store,
 				pprInformer:     store,
@@ -104,6 +130,7 @@ func TestPoolAdapterCellInitialization(t *testing.T) {
 				},
 			}
 			key := pprutil.PodProtectorKey{
+				SourceName:     "",
 				NamespacedName: types.NamespacedName{Namespace: ppr.Namespace, Name: ppr.Name},
 			}
 			args := []BatchItem{}
@@ -111,9 +138,15 @@ func TestPoolAdapterCellInitialization(t *testing.T) {
 				args = append(args, BatchItem{
 					BatchItem: observer.BatchItem{CellId: cellID},
 					PodUid:    types.UID([]string{"pod-1", "pod-2", "pod-3"}[index]),
+					PodName:   "",
 					PodStatus: disruptionquota.PodStatus{
 						HealthCriterion: healthcriterion.Available,
-						Status:          podutil.PodStatus{IsAvailable: !test.unhealthy},
+						Status: podutil.PodStatus{
+							IsScheduled: false,
+							IsRunning:   false,
+							IsReady:     false,
+							IsAvailable: !test.unhealthy,
+						},
 					},
 				})
 			}
@@ -121,25 +154,16 @@ func TestPoolAdapterCellInitialization(t *testing.T) {
 			config := adapter.defaultConfig.Compute(optional.Some(ppr.Spec.AdmissionHistoryConfig))
 			pprutil.Summarize(config, ppr)
 			expected := ppr.DeepCopy()
+			wantWrites := 0
 			if allow {
+				wantWrites = 1
 				expected.Status.Cells = append(expected.Status.Cells,
 					podseidonv1a1.PodProtectorCellStatus{CellId: secondCell})
 				if test.initialCellID != optional.Some(firstCell) {
 					expected.Status.Cells = append(expected.Status.Cells,
 						podseidonv1a1.PodProtectorCellStatus{CellId: firstCell})
 				}
-				for index := len(args) - 1; index >= 0; index-- {
-					for cellIndex := range expected.Status.Cells {
-						cell := &expected.Status.Cells[cellIndex]
-						if cell.CellId == args[index].CellId {
-							cell.History.Buckets = append(cell.History.Buckets,
-								podseidonv1a1.PodProtectorAdmissionBucket{
-									StartTime: metav1.NewMicroTime(now),
-									PodUid:    ptr.To(args[index].PodUid),
-								})
-						}
-					}
-				}
+				appendExpectedAdmissionBuckets(expected, args, now)
 			}
 			pprutil.Summarize(config, expected)
 
@@ -157,13 +181,24 @@ func TestPoolAdapterCellInitialization(t *testing.T) {
 				}
 				assert.Equal(t, expected.Status, store.ppr.Status)
 				assert.Equal(t, before, cached, "informer objects must not be mutated")
-				wantWrites := 0
-				if allow {
-					wantWrites = 1
-				}
 				assert.Equal(t, wantWrites, store.writes)
 			}
 		})
+	}
+}
+
+func appendExpectedAdmissionBuckets(ppr *podseidonv1a1.PodProtector, args []BatchItem, now time.Time) {
+	for index := len(args) - 1; index >= 0; index-- {
+		for cellIndex := range ppr.Status.Cells {
+			cell := &ppr.Status.Cells[cellIndex]
+			if cell.CellId == args[index].CellId {
+				cell.History.Buckets = append(cell.History.Buckets,
+					podseidonv1a1.PodProtectorAdmissionBucket{
+						StartTime: metav1.NewMicroTime(now),
+						PodUid:    ptr.To(args[index].PodUid),
+					})
+			}
+		}
 	}
 }
 
