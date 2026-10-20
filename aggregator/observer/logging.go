@@ -65,6 +65,8 @@ func NewLoggingObserver() Observer {
 				"scheduledReplicas", arg.ScheduledReplicas,
 				"runningReplicas", arg.RunningReplicas,
 				"availableReplicas", arg.AvailableReplicas,
+				"pendingReplicas", arg.PendingReplicas,
+				"unscheduledPendingReplicas", arg.UnscheduledPendingReplicas,
 			)
 		},
 		NextEventPoolCurrentSize:    nil,

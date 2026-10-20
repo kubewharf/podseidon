@@ -116,6 +116,19 @@ type PodProtectorAggregation struct {
 	// Number of pods currently in Running phase when observed by aggregator.
 	// +optional
 	RunningReplicas int32 `json:"runningReplicas,omitempty"`
+	// Number of pods selected by this PodProtector that are currently in Pending phase when observed by aggregator.
+	// Pods may be selected by multiple PodProtectors, so this value must not be summed across PodProtectors.
+	// A nil value means that the aggregator has not reported this field.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	PendingReplicas *int32 `json:"pendingReplicas,omitempty"`
+	// Number of pods selected by this PodProtector that are currently in Pending phase
+	// and have no node assignment when observed by aggregator.
+	// Pods may be selected by multiple PodProtectors, so this value must not be summed across PodProtectors.
+	// A nil value means that the aggregator has not reported this field.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	UnscheduledPendingReplicas *int32 `json:"unscheduledPendingReplicas,omitempty"`
 
 	// Timestamp of the last event observed by the pod reflector of the aggregator when this snapshot was written.
 	// +optional

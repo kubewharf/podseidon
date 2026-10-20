@@ -245,7 +245,7 @@ par Pod watch events are broadcast in parallel
   dp ->> cell: delete pod Y
   cell ->> webhook: pod Y<br>admission review
   webhook ->> core: GET PodProtector
-  core ->> webhook: status.aggreagtion.totalReplicas = spec.minAvailable
+  core ->> webhook: status.aggregation.totalReplicas = spec.minAvailable
   webhook ->> cell: allowed=false<br>totalReplicas is too low
 and False positive occurs if the status update happens later than the GET PodProtector response
   cell ->> aggregator: CHANGED(pod X)

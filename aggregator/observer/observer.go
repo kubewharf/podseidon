@@ -70,6 +70,8 @@ const (
 	StatusChangeCauseScheduled
 	StatusChangeCauseCreated
 	StatusChangeCauseHistoryBucketAggregated
+	StatusChangeCausePending
+	StatusChangeCauseUnscheduledPending
 )
 
 func (cause StatusChangeCause) BitToString() string {
@@ -86,6 +88,10 @@ func (cause StatusChangeCause) BitToString() string {
 		return "Created"
 	case StatusChangeCauseHistoryBucketAggregated:
 		return "HistoryBucketAggregated"
+	case StatusChangeCausePending:
+		return "Pending"
+	case StatusChangeCauseUnscheduledPending:
+		return "UnscheduledPending"
 	default:
 		panic("receiver is not a power of 2")
 	}
@@ -114,11 +120,13 @@ type EnqueueError struct {
 }
 
 type Aggregated struct {
-	NumPods           int
-	ReadyReplicas     int32
-	ScheduledReplicas int32
-	RunningReplicas   int32
-	AvailableReplicas int32
+	NumPods                    int
+	ReadyReplicas              int32
+	ScheduledReplicas          int32
+	RunningReplicas            int32
+	AvailableReplicas          int32
+	PendingReplicas            int32
+	UnscheduledPendingReplicas int32
 }
 
 type NextEventPoolMonitor struct {

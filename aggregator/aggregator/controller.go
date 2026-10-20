@@ -415,7 +415,7 @@ func createPodInformer(
 
 	if err := informer.SetTransform(func(obj any) (any, error) {
 		if pod, isPod := obj.(*corev1.Pod); isPod {
-			pod.Spec = corev1.PodSpec{} // avoid keeping unused pod spec in memory
+			pod.Spec = corev1.PodSpec{NodeName: pod.Spec.NodeName}
 		}
 		return obj, nil
 	}); err != nil {
@@ -653,7 +653,16 @@ func tryReconcile(
 	requeue := optional.None[time.Duration]()
 	hasChange := haschange.New[observer.StatusChangeCause]()
 
-	if err := aggregateStatus(ctx, options.clk, obs, relevantPods, ppr, &requeue, &status.Aggregation, &hasChange); err != nil {
+	if err := aggregateStatus(
+		ctx,
+		options.clk,
+		obs,
+		relevantPods,
+		ppr,
+		&requeue,
+		&status.Aggregation,
+		&hasChange,
+	); err != nil {
 		return observer.EndReconcile{
 			Err:       err,
 			HasChange: haschange.New[observer.StatusChangeCause](),
@@ -779,6 +788,8 @@ func aggregateStatus(
 	scheduledReplicas := int32(0)
 	runningReplicas := int32(0)
 	availableReplicas := int32(0)
+	pendingReplicas := int32(0)
+	unscheduledPendingReplicas := int32(0)
 
 	for _, pod := range relevantPods {
 		podStatus := podutil.GetPodStatus(clk, pod, ppr.Spec.MinReadySeconds, requeue)
@@ -798,6 +809,13 @@ func aggregateStatus(
 		if podStatus.IsAvailable {
 			availableReplicas++
 		}
+
+		if pod.Status.Phase == corev1.PodPending {
+			pendingReplicas++
+			if pod.Spec.NodeName == "" {
+				unscheduledPendingReplicas++
+			}
+		}
 	}
 
 	haschange.Assign(changed, &target.ReadyReplicas, readyReplicas, observer.StatusChangeCauseReady)
@@ -805,15 +823,37 @@ func aggregateStatus(
 	haschange.Assign(changed, &target.RunningReplicas, runningReplicas, observer.StatusChangeCauseRunning)
 	haschange.Assign(changed, &target.AvailableReplicas, availableReplicas, observer.StatusChangeCauseAvailable)
 
+	assignOptionalInt32(changed, &target.PendingReplicas, pendingReplicas, observer.StatusChangeCausePending)
+	assignOptionalInt32(
+		changed,
+		&target.UnscheduledPendingReplicas,
+		unscheduledPendingReplicas,
+		observer.StatusChangeCauseUnscheduledPending,
+	)
+
 	obs.Aggregated(ctx, observer.Aggregated{
-		NumPods:           len(relevantPods),
-		ReadyReplicas:     readyReplicas,
-		ScheduledReplicas: scheduledReplicas,
-		RunningReplicas:   runningReplicas,
-		AvailableReplicas: availableReplicas,
+		NumPods:                    len(relevantPods),
+		ReadyReplicas:              readyReplicas,
+		ScheduledReplicas:          scheduledReplicas,
+		RunningReplicas:            runningReplicas,
+		AvailableReplicas:          availableReplicas,
+		PendingReplicas:            pendingReplicas,
+		UnscheduledPendingReplicas: unscheduledPendingReplicas,
 	})
 
 	return nil
+}
+
+func assignOptionalInt32(
+	changed *haschange.Changed[observer.StatusChangeCause],
+	target **int32,
+	value int32,
+	cause observer.StatusChangeCause,
+) {
+	if *target == nil || **target != value {
+		*target = &value
+		changed.Add(cause)
+	}
 }
 
 // Clean up obsolete admission history observed by the current aggregation.

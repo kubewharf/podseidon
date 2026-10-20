@@ -246,6 +246,14 @@ spec:
                             written.
                           format: date-time
                           type: string
+                        pendingReplicas:
+                          description: |-
+                            Number of pods selected by this PodProtector that are currently in Pending phase when observed by aggregator.
+                            Pods may be selected by multiple PodProtectors, so this value must not be summed across PodProtectors.
+                            A nil value means that the aggregator has not reported this field.
+                          format: int32
+                          minimum: 0
+                          type: integer
                         readyReplicas:
                           description: |-
                             Number of pods currently ready when observed by aggregator.
@@ -265,6 +273,15 @@ spec:
                         totalReplicas:
                           description: Number of non-terminated pods as observed by
                             aggregator.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        unscheduledPendingReplicas:
+                          description: |-
+                            Number of pods selected by this PodProtector that are currently in Pending phase
+                            and have no node assignment when observed by aggregator.
+                            Pods may be selected by multiple PodProtectors, so this value must not be summed across PodProtectors.
+                            A nil value means that the aggregator has not reported this field.
                           format: int32
                           minimum: 0
                           type: integer

@@ -56,6 +56,9 @@ func TestReconcileEmpty(t *testing.T) {
 				IsDeleted:       false,
 				IsAggregateOnly: true,
 				ReadyFor:        optional.Some(time.Second),
+				Phase:           corev1.PodRunning,
+				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 0,
 		},
 		ExpectInitial: ExpectState{
@@ -67,9 +70,12 @@ func TestReconcileEmpty(t *testing.T) {
 				EstimatedAvailable:  0,
 
 				AggregatedReady:     0,
-				AggregatedScheduled: 5,
-				AggregatedRunning:   5,
+				AggregatedScheduled: 0,
+				AggregatedRunning:   0,
 			},
+			AssertPendingReplicas:      true,
+			PendingReplicas:            ptr.To(int32(0)),
+			UnscheduledPendingReplicas: ptr.To(int32(0)),
 		},
 		ExpectLater: optional.None[ExpectLaterState](),
 	})
@@ -85,6 +91,9 @@ func TestReconcileAllAvailable(t *testing.T) {
 				IsDeleted:       false,
 				IsAggregateOnly: true,
 				ReadyFor:        optional.Some(time.Second),
+				Phase:           corev1.PodRunning,
+				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 5,
 		},
 		ExpectInitial: ExpectState{
@@ -99,6 +108,9 @@ func TestReconcileAllAvailable(t *testing.T) {
 				AggregatedScheduled: 5,
 				AggregatedRunning:   5,
 			},
+			AssertPendingReplicas:      true,
+			PendingReplicas:            ptr.To(int32(0)),
+			UnscheduledPendingReplicas: ptr.To(int32(0)),
 		},
 		ExpectLater: optional.None[ExpectLaterState](),
 	})
@@ -114,16 +126,25 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 				IsDeleted:       false,
 				IsAggregateOnly: true,
 				ReadyFor:        optional.Some(time.Second),
+				Phase:           corev1.PodRunning,
+				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 2,
 			{
 				IsDeleted:       false,
 				IsAggregateOnly: true,
 				ReadyFor:        optional.Some(time.Second * 5),
+				Phase:           corev1.PodRunning,
+				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 3,
 			{
 				IsDeleted:       true,
 				IsAggregateOnly: true,
 				ReadyFor:        optional.Some(time.Second * 5),
+				Phase:           corev1.PodRunning,
+				IsUnscheduled:   false,
+				NodeName:        "worker-1",
 			}: 2,
 		},
 		ExpectInitial: ExpectState{
@@ -134,10 +155,13 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 				MaxLatencyMillis:    0,
 				EstimatedAvailable:  3,
 
-				AggregatedReady:     3,
+				AggregatedReady:     5,
 				AggregatedScheduled: 5,
 				AggregatedRunning:   5,
 			},
+			AssertPendingReplicas:      true,
+			PendingReplicas:            ptr.To(int32(0)),
+			UnscheduledPendingReplicas: ptr.To(int32(0)),
 		},
 		ExpectLater: optional.Some(ExpectLaterState{
 			Delay: time.Second * 2,
@@ -153,8 +177,77 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 					AggregatedScheduled: 5,
 					AggregatedRunning:   5,
 				},
+				AssertPendingReplicas:      true,
+				PendingReplicas:            ptr.To(int32(0)),
+				UnscheduledPendingReplicas: ptr.To(int32(0)),
 			},
 		}),
+	})
+}
+
+//nolint:paralleltest // klog InitFlags cannot be called in parallel
+func TestReconcilePendingReplicas(t *testing.T) {
+	testReconcile(t, TestCase{
+		MinAvailable:    5,
+		MinReadySeconds: 0,
+		Pods: map[PodSetup]uint64{
+			{
+				IsDeleted:       false,
+				IsAggregateOnly: false,
+				ReadyFor:        optional.None[time.Duration](),
+				Phase:           corev1.PodPending,
+				IsUnscheduled:   false,
+				NodeName:        "",
+			}: 2,
+			{
+				IsDeleted:       false,
+				IsAggregateOnly: false,
+				ReadyFor:        optional.None[time.Duration](),
+				Phase:           corev1.PodPending,
+				IsUnscheduled:   true,
+				NodeName:        "worker-1",
+			}: 3,
+			{
+				IsDeleted:       false,
+				IsAggregateOnly: false,
+				ReadyFor:        optional.None[time.Duration](),
+				Phase:           corev1.PodRunning,
+				IsUnscheduled:   true,
+				NodeName:        "",
+			}: 4,
+			{
+				IsDeleted:       false,
+				IsAggregateOnly: false,
+				ReadyFor:        optional.None[time.Duration](),
+				Phase:           corev1.PodRunning,
+				IsUnscheduled:   false,
+				NodeName:        "worker-1",
+			}: 1,
+			{
+				IsDeleted:       true,
+				IsAggregateOnly: false,
+				ReadyFor:        optional.None[time.Duration](),
+				Phase:           corev1.PodPending,
+				IsUnscheduled:   true,
+				NodeName:        "",
+			}: 2,
+		},
+		ExpectInitial: ExpectState{
+			ErrTag: optional.None[string](),
+			Summary: podseidonv1a1.PodProtectorStatusSummary{
+				Total:               10,
+				AggregatedAvailable: 0,
+				MaxLatencyMillis:    0,
+				EstimatedAvailable:  0,
+				AggregatedReady:     0,
+				AggregatedScheduled: 3,
+				AggregatedRunning:   5,
+			},
+			AssertPendingReplicas:      true,
+			PendingReplicas:            ptr.To(int32(5)),
+			UnscheduledPendingReplicas: ptr.To(int32(2)),
+		},
+		ExpectLater: optional.None[ExpectLaterState](),
 	})
 }
 
@@ -162,6 +255,9 @@ type PodSetup struct {
 	IsDeleted       bool
 	IsAggregateOnly bool
 	ReadyFor        optional.Optional[time.Duration]
+	Phase           corev1.PodPhase
+	IsUnscheduled   bool
+	NodeName        string
 }
 
 func (setup PodSetup) makePod(clk clock.Clock) *corev1.Pod {
@@ -178,7 +274,7 @@ func (setup PodSetup) makePod(clk clock.Clock) *corev1.Pod {
 				"triggersWebhook": fmt.Sprint(!setup.IsAggregateOnly),
 			},
 		},
-		// We remove the whole Spec field in the informer anyway
+		Spec: corev1.PodSpec{NodeName: setup.NodeName},
 		Status: corev1.PodStatus{
 			Conditions: []corev1.PodCondition{
 				{
@@ -192,8 +288,16 @@ func (setup PodSetup) makePod(clk clock.Clock) *corev1.Pod {
 					LastTransitionTime: metav1.Time{Time: clk.Now()},
 				},
 			},
-			Phase: corev1.PodRunning,
+			Phase: setup.Phase,
 		},
+	}
+
+	if pod.Status.Phase == "" {
+		pod.Status.Phase = corev1.PodRunning
+	}
+
+	if setup.IsUnscheduled {
+		pod.Status.Conditions[1].Status = corev1.ConditionFalse
 	}
 
 	if setup.IsDeleted {
@@ -220,6 +324,10 @@ type TestCase struct {
 type ExpectState struct {
 	ErrTag  optional.Optional[string]
 	Summary podseidonv1a1.PodProtectorStatusSummary
+
+	AssertPendingReplicas      bool
+	PendingReplicas            *int32
+	UnscheduledPendingReplicas *int32
 }
 
 type ExpectLaterState struct {
@@ -388,6 +496,58 @@ func waitAndAssert(
 		func(summary *podseidonv1a1.PodProtectorStatusSummary) int32 { return summary.EstimatedAvailable },
 		"summary.estimatedAvailable",
 	)
+	assertSummaryEventuallyEqual(
+		ctx, t, coreClient, expected,
+		func(summary *podseidonv1a1.PodProtectorStatusSummary) int32 { return summary.AggregatedReady },
+		"summary.aggregatedReady",
+	)
+	assertSummaryEventuallyEqual(
+		ctx, t, coreClient, expected,
+		func(summary *podseidonv1a1.PodProtectorStatusSummary) int32 { return summary.AggregatedScheduled },
+		"summary.aggregatedScheduled",
+	)
+	assertSummaryEventuallyEqual(
+		ctx, t, coreClient, expected,
+		func(summary *podseidonv1a1.PodProtectorStatusSummary) int32 { return summary.AggregatedRunning },
+		"summary.aggregatedRunning",
+	)
+	if expected.AssertPendingReplicas {
+		assertAggregationEventuallyEqual(ctx, t, coreClient, expected)
+	}
+}
+
+func assertAggregationEventuallyEqual(
+	ctx context.Context,
+	t *testing.T,
+	coreClient *kube.Client,
+	expected ExpectState,
+) {
+	assert.Eventually(
+		t,
+		func() bool {
+			actual, err := coreClient.PodseidonClientSet().
+				PodseidonV1alpha1().
+				PodProtectors(metav1.NamespaceDefault).
+				Get(ctx, TestPprName, metav1.GetOptions{})
+			require.NoError(t, err)
+			require.Len(t, actual.Status.Cells, 1)
+
+			aggregation := actual.Status.Cells[0].Aggregation
+			return optionalInt32Equal(expected.PendingReplicas, aggregation.PendingReplicas) &&
+				optionalInt32Equal(expected.UnscheduledPendingReplicas, aggregation.UnscheduledPendingReplicas)
+		},
+		time.Millisecond*10,
+		time.Microsecond*100,
+		"cell aggregation pending replicas",
+	)
+}
+
+func optionalInt32Equal(left, right *int32) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+
+	return *left == *right
 }
 
 func assertSummaryEventuallyEqual[R comparable](
