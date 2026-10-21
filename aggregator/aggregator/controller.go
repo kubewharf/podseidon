@@ -647,7 +647,15 @@ func tryReconcile(
 		func(status podseidonv1a1.PodProtectorCellStatus) bool { return status.CellId == options.myCellId },
 	)
 	if statusIndex == -1 && len(relevantPods) == 0 {
-		obs.Aggregated(ctx, observer.Aggregated{})
+		obs.Aggregated(ctx, observer.Aggregated{
+			NumPods:                    0,
+			ReadyReplicas:              0,
+			ScheduledReplicas:          0,
+			RunningReplicas:            0,
+			AvailableReplicas:          0,
+			PendingReplicas:            0,
+			UnscheduledPendingReplicas: 0,
+		})
 
 		return observer.EndReconcile{
 			Err:       nil,

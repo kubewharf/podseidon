@@ -105,6 +105,7 @@ func TestReconcileEmptyExistingCell(t *testing.T) {
 				AggregatedScheduled: 0,
 				AggregatedRunning:   0,
 			},
+			AssertNoCells:              false,
 			AssertPendingReplicas:      true,
 			PendingReplicas:            ptr.To(int32(0)),
 			UnscheduledPendingReplicas: ptr.To(int32(0)),
