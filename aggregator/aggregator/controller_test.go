@@ -51,6 +51,7 @@ func TestReconcileEmpty(t *testing.T) {
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 0,
+		InitialCells:    nil,
 		Pods: map[PodSetup]uint64{
 			{
 				IsDeleted:       false,
@@ -73,7 +74,10 @@ func TestReconcileEmpty(t *testing.T) {
 				AggregatedScheduled: 0,
 				AggregatedRunning:   0,
 			},
-			AssertNoCells: true,
+			AssertNoCells:              true,
+			AssertPendingReplicas:      false,
+			PendingReplicas:            nil,
+			UnscheduledPendingReplicas: nil,
 		},
 		ExpectLater: optional.None[ExpectLaterState](),
 	})
@@ -119,6 +123,7 @@ func TestReconcileAllAvailable(t *testing.T) {
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 0,
+		InitialCells:    nil,
 		Pods: map[PodSetup]uint64{
 			{
 				IsDeleted:       false,
@@ -141,6 +146,7 @@ func TestReconcileAllAvailable(t *testing.T) {
 				AggregatedScheduled: 5,
 				AggregatedRunning:   5,
 			},
+			AssertNoCells:              false,
 			AssertPendingReplicas:      true,
 			PendingReplicas:            ptr.To(int32(0)),
 			UnscheduledPendingReplicas: ptr.To(int32(0)),
@@ -154,6 +160,7 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 3,
+		InitialCells:    nil,
 		Pods: map[PodSetup]uint64{
 			{
 				IsDeleted:       false,
@@ -192,6 +199,7 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 				AggregatedScheduled: 5,
 				AggregatedRunning:   5,
 			},
+			AssertNoCells:              false,
 			AssertPendingReplicas:      true,
 			PendingReplicas:            ptr.To(int32(0)),
 			UnscheduledPendingReplicas: ptr.To(int32(0)),
@@ -210,6 +218,7 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 					AggregatedScheduled: 5,
 					AggregatedRunning:   5,
 				},
+				AssertNoCells:              false,
 				AssertPendingReplicas:      true,
 				PendingReplicas:            ptr.To(int32(0)),
 				UnscheduledPendingReplicas: ptr.To(int32(0)),
@@ -223,6 +232,7 @@ func TestReconcilePendingReplicas(t *testing.T) {
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 0,
+		InitialCells:    nil,
 		Pods: map[PodSetup]uint64{
 			{
 				IsDeleted:       false,
@@ -276,6 +286,7 @@ func TestReconcilePendingReplicas(t *testing.T) {
 				AggregatedScheduled: 3,
 				AggregatedRunning:   5,
 			},
+			AssertNoCells:              false,
 			AssertPendingReplicas:      true,
 			PendingReplicas:            ptr.To(int32(5)),
 			UnscheduledPendingReplicas: ptr.To(int32(2)),
