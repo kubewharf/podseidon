@@ -51,6 +51,7 @@ func TestReconcileEmpty(t *testing.T) {
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 0,
+		InitialCells:    nil,
 		Pods: map[PodSetup]uint64{
 			{
 				IsDeleted:       false,
@@ -73,6 +74,42 @@ func TestReconcileEmpty(t *testing.T) {
 				AggregatedScheduled: 0,
 				AggregatedRunning:   0,
 			},
+			AssertNoCells:              true,
+			AssertPendingReplicas:      false,
+			PendingReplicas:            nil,
+			UnscheduledPendingReplicas: nil,
+		},
+		ExpectLater: optional.None[ExpectLaterState](),
+	})
+}
+
+//nolint:paralleltest // klog InitFlags cannot be called in parallel
+func TestReconcileEmptyExistingCell(t *testing.T) {
+	testReconcile(t, TestCase{
+		MinAvailable:    5,
+		MinReadySeconds: 0,
+		InitialCells: []podseidonv1a1.PodProtectorCellStatus{{
+			CellId: "default",
+			Aggregation: podseidonv1a1.PodProtectorAggregation{
+				TotalReplicas:              1,
+				PendingReplicas:            ptr.To(int32(1)),
+				UnscheduledPendingReplicas: ptr.To(int32(1)),
+			},
+		}},
+		Pods: map[PodSetup]uint64{},
+		ExpectInitial: ExpectState{
+			ErrTag: optional.None[string](),
+			Summary: podseidonv1a1.PodProtectorStatusSummary{
+				Total:               0,
+				AggregatedAvailable: 0,
+				MaxLatencyMillis:    0,
+				EstimatedAvailable:  0,
+
+				AggregatedReady:     0,
+				AggregatedScheduled: 0,
+				AggregatedRunning:   0,
+			},
+			AssertNoCells:              false,
 			AssertPendingReplicas:      true,
 			PendingReplicas:            ptr.To(int32(0)),
 			UnscheduledPendingReplicas: ptr.To(int32(0)),
@@ -86,6 +123,7 @@ func TestReconcileAllAvailable(t *testing.T) {
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 0,
+		InitialCells:    nil,
 		Pods: map[PodSetup]uint64{
 			{
 				IsDeleted:       false,
@@ -108,6 +146,7 @@ func TestReconcileAllAvailable(t *testing.T) {
 				AggregatedScheduled: 5,
 				AggregatedRunning:   5,
 			},
+			AssertNoCells:              false,
 			AssertPendingReplicas:      true,
 			PendingReplicas:            ptr.To(int32(0)),
 			UnscheduledPendingReplicas: ptr.To(int32(0)),
@@ -121,6 +160,7 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 3,
+		InitialCells:    nil,
 		Pods: map[PodSetup]uint64{
 			{
 				IsDeleted:       false,
@@ -159,6 +199,7 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 				AggregatedScheduled: 5,
 				AggregatedRunning:   5,
 			},
+			AssertNoCells:              false,
 			AssertPendingReplicas:      true,
 			PendingReplicas:            ptr.To(int32(0)),
 			UnscheduledPendingReplicas: ptr.To(int32(0)),
@@ -177,6 +218,7 @@ func TestReconcileSomeReadyButUnavailable(t *testing.T) {
 					AggregatedScheduled: 5,
 					AggregatedRunning:   5,
 				},
+				AssertNoCells:              false,
 				AssertPendingReplicas:      true,
 				PendingReplicas:            ptr.To(int32(0)),
 				UnscheduledPendingReplicas: ptr.To(int32(0)),
@@ -190,6 +232,7 @@ func TestReconcilePendingReplicas(t *testing.T) {
 	testReconcile(t, TestCase{
 		MinAvailable:    5,
 		MinReadySeconds: 0,
+		InitialCells:    nil,
 		Pods: map[PodSetup]uint64{
 			{
 				IsDeleted:       false,
@@ -243,6 +286,7 @@ func TestReconcilePendingReplicas(t *testing.T) {
 				AggregatedScheduled: 3,
 				AggregatedRunning:   5,
 			},
+			AssertNoCells:              false,
 			AssertPendingReplicas:      true,
 			PendingReplicas:            ptr.To(int32(5)),
 			UnscheduledPendingReplicas: ptr.To(int32(2)),
@@ -315,6 +359,7 @@ func (setup PodSetup) makePod(clk clock.Clock) *corev1.Pod {
 type TestCase struct {
 	MinAvailable    int32
 	MinReadySeconds int32
+	InitialCells    []podseidonv1a1.PodProtectorCellStatus
 	Pods            map[PodSetup]uint64
 
 	ExpectInitial ExpectState
@@ -325,6 +370,7 @@ type ExpectState struct {
 	ErrTag  optional.Optional[string]
 	Summary podseidonv1a1.PodProtectorStatusSummary
 
+	AssertNoCells              bool
 	AssertPendingReplicas      bool
 	PendingReplicas            *int32
 	UnscheduledPendingReplicas *int32
@@ -362,6 +408,9 @@ func (tc TestCase) CoreClient() *kube.Client {
 						"test": "true",
 					},
 				},
+			},
+			Status: podseidonv1a1.PodProtectorStatus{
+				Cells: tc.InitialCells,
 			},
 		},
 	)
@@ -511,9 +560,34 @@ func waitAndAssert(
 		func(summary *podseidonv1a1.PodProtectorStatusSummary) int32 { return summary.AggregatedRunning },
 		"summary.aggregatedRunning",
 	)
+	if expected.AssertNoCells {
+		assertNoCellsEventually(ctx, t, coreClient)
+	}
 	if expected.AssertPendingReplicas {
 		assertAggregationEventuallyEqual(ctx, t, coreClient, expected)
 	}
+}
+
+func assertNoCellsEventually(
+	ctx context.Context,
+	t *testing.T,
+	coreClient *kube.Client,
+) {
+	assert.Eventually(
+		t,
+		func() bool {
+			actual, err := coreClient.PodseidonClientSet().
+				PodseidonV1alpha1().
+				PodProtectors(metav1.NamespaceDefault).
+				Get(ctx, TestPprName, metav1.GetOptions{})
+			require.NoError(t, err)
+
+			return len(actual.Status.Cells) == 0
+		},
+		time.Millisecond*10,
+		time.Microsecond*100,
+		"no aggregation cell",
+	)
 }
 
 func assertAggregationEventuallyEqual(

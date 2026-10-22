@@ -642,13 +642,38 @@ func tryReconcile(
 		}
 	}
 
-	status := util.GetOrAppendSliceWith(
-		&ppr.Status.Cells,
-		func(status *podseidonv1a1.PodProtectorCellStatus) bool { return status.CellId == options.myCellId },
-		func() podseidonv1a1.PodProtectorCellStatus {
-			return podseidonv1a1.PodProtectorCellStatus{CellId: options.myCellId}
-		},
+	statusIndex := util.FindInSliceWith(
+		ppr.Status.Cells,
+		func(status podseidonv1a1.PodProtectorCellStatus) bool { return status.CellId == options.myCellId },
 	)
+	if statusIndex == -1 && len(relevantPods) == 0 {
+		obs.Aggregated(ctx, observer.Aggregated{
+			NumPods:                    0,
+			ReadyReplicas:              0,
+			ScheduledReplicas:          0,
+			RunningReplicas:            0,
+			AvailableReplicas:          0,
+			PendingReplicas:            0,
+			UnscheduledPendingReplicas: 0,
+		})
+
+		return observer.EndReconcile{
+			Err:       nil,
+			HasChange: haschange.New[observer.StatusChangeCause](),
+			Action:    observer.ReconcileActionUpdated,
+		}
+	}
+
+	var status *podseidonv1a1.PodProtectorCellStatus
+	if statusIndex == -1 {
+		ppr.Status.Cells = append(
+			ppr.Status.Cells,
+			podseidonv1a1.PodProtectorCellStatus{CellId: options.myCellId},
+		)
+		status = &ppr.Status.Cells[len(ppr.Status.Cells)-1]
+	} else {
+		status = &ppr.Status.Cells[statusIndex]
+	}
 
 	requeue := optional.None[time.Duration]()
 	hasChange := haschange.New[observer.StatusChangeCause]()
