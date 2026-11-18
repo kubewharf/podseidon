@@ -77,6 +77,15 @@ func ProvideLogging() component.Declared[Observer] {
 							Info("PodProtector object is still finalizing", "namespace", ppr.Namespace, "name", ppr.Name)
 					}
 				},
+				MalformedCells: func(ctx context.Context, arg MalformedCells) {
+					klog.FromContext(ctx).
+						WithCallDepth(1).
+						Info(
+							"Processed PodProtector cells with empty cell ID",
+							"removed", arg.Removed,
+							"retained", arg.Retained,
+						)
+				},
 				CreateProtector: func(ctx context.Context, _ util.Empty) (context.Context, context.CancelFunc) {
 					klog.FromContext(ctx).
 						V(3).
