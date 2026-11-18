@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 
 	podseidon "github.com/kubewharf/podseidon/apis"
@@ -307,6 +308,98 @@ func TestReconcileDisappeared(t *testing.T) {
 	})
 }
 
+func TestReconcileRemoveMalformedEmptyCellsFromDanglingProtector(t *testing.T) {
+	t.Parallel()
+
+	const emptyCellCount = 17081
+
+	cells := make([]podseidonv1a1.PodProtectorCellStatus, 0, emptyCellCount+3)
+	for range emptyCellCount {
+		cells = append(cells, podseidonv1a1.PodProtectorCellStatus{})
+	}
+	cells = append(cells,
+		podseidonv1a1.PodProtectorCellStatus{CellId: "valid-cell"},
+		podseidonv1a1.PodProtectorCellStatus{
+			Aggregation: podseidonv1a1.PodProtectorAggregation{TotalReplicas: 1},
+		},
+		podseidonv1a1.PodProtectorCellStatus{
+			History: podseidonv1a1.PodProtectorAdmissionHistory{
+				Buckets: []podseidonv1a1.PodProtectorAdmissionBucket{{}},
+			},
+		},
+	)
+
+	summary := podseidonv1a1.PodProtectorStatusSummary{
+		Total:               11,
+		AggregatedAvailable: 7,
+	}
+
+	testReconcile(t, testReconcileArgs{
+		srcObjects: []*testObject{},
+		pprs: []*podseidonv1a1.PodProtector{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:  testNamespace,
+					Name:       testPprName,
+					Labels:     testPprLabels,
+					Finalizers: []string{podseidon.GeneratorFinalizer},
+				},
+				Spec: podseidonv1a1.PodProtectorSpec{MinAvailable: 10},
+				Status: podseidonv1a1.PodProtectorStatus{
+					Cells:   cells,
+					Summary: summary,
+				},
+			},
+		},
+		expectSrcs: map[types.NamespacedName]checkSrc{
+			{Namespace: testNamespace, Name: testObjName}: func(t *testing.T, src *testObject) {
+				assert.Nil(t, src)
+			},
+		},
+		expectPprs: map[types.NamespacedName]checkPpr{
+			{Namespace: testNamespace, Name: testPprName}: func(t *testing.T, ppr *podseidonv1a1.PodProtector) {
+				if assert.NotNil(t, ppr) {
+					assert.Equal(t, cells[emptyCellCount:], ppr.Status.Cells)
+					assert.Equal(t, summary, ppr.Status.Summary)
+				}
+			},
+		},
+		expectActions:               []observer.Action{observer.ActionDanglingProtector},
+		expectRemoveSourceFinalizer: false,
+	})
+}
+
+func TestReconcileRemoveMalformedEmptyCellsStatusUpdateFailure(t *testing.T) {
+	t.Parallel()
+
+	cell := podseidonv1a1.PodProtectorCellStatus{}
+	testReconcile(t, testReconcileArgs{
+		srcObjects: []*testObject{},
+		pprs: []*podseidonv1a1.PodProtector{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: testNamespace,
+					Name:      testPprName,
+					Labels:    testPprLabels,
+				},
+				Status: podseidonv1a1.PodProtectorStatus{
+					Cells: []podseidonv1a1.PodProtectorCellStatus{cell},
+				},
+			},
+		},
+		failStatusUpdate: true,
+		expectError:      true,
+		expectPprs: map[types.NamespacedName]checkPpr{
+			{Namespace: testNamespace, Name: testPprName}: func(t *testing.T, ppr *podseidonv1a1.PodProtector) {
+				if assert.NotNil(t, ppr) {
+					assert.Equal(t, []podseidonv1a1.PodProtectorCellStatus{cell}, ppr.Status.Cells)
+				}
+			},
+		},
+		expectActions: []observer.Action{observer.ActionError},
+	})
+}
+
 type (
 	checkPpr func(*testing.T, *podseidonv1a1.PodProtector)
 	checkSrc func(*testing.T, *testObject)
@@ -320,6 +413,8 @@ type testReconcileArgs struct {
 	expectPprs                  map[types.NamespacedName]checkPpr
 	expectActions               []observer.Action
 	expectRemoveSourceFinalizer bool
+	failStatusUpdate            bool
+	expectError                 bool
 }
 
 func testReconcile(
@@ -335,6 +430,14 @@ func testReconcile(
 		args.pprs,
 		func(obj *podseidonv1a1.PodProtector) runtime.Object { return obj },
 	)...)
+	if args.failStatusUpdate {
+		clientSet.PrependReactor("update", "podprotectors", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			if action.GetSubresource() == "status" {
+				return true, nil, fmt.Errorf("injected status update failure")
+			}
+			return false, nil, nil
+		})
+	}
 	pprClient := clientSet.PodseidonV1alpha1()
 
 	pprInformer := podseidonv1a1informers.NewPodProtectorInformer(
@@ -369,7 +472,11 @@ func testReconcile(
 		//nolint:exhaustruct // other fields are filled by ReflectPopulate
 		o11y.ReflectPopulate(observer.Observer{
 			EndReconcile: func(_ context.Context, arg observer.EndReconcile) {
-				require.NoError(t, arg.Err)
+				if args.expectError {
+					assert.Error(t, arg.Err)
+				} else {
+					require.NoError(t, arg.Err)
+				}
 				reconcileActions = append(reconcileActions, arg.Action)
 			},
 			CleanSourceFinalizer: func(ctx context.Context, _ observer.StartReconcile) (context.Context, context.CancelFunc) {
@@ -388,7 +495,11 @@ func testReconcile(
 			TypeDefIndex: 0,
 		},
 	)
-	require.NoError(t, err)
+	if args.expectError {
+		require.Error(t, err)
+	} else {
+		require.NoError(t, err)
+	}
 
 	assert.Equal(t, args.expectActions, reconcileActions)
 

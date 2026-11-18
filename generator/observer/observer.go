@@ -38,6 +38,7 @@ type Observer struct {
 	EndReconcile   o11y.ObserveFunc[EndReconcile]
 
 	DanglingProtector    o11y.ObserveFunc[*podseidonv1a1.PodProtector]
+	MalformedCells       o11y.ObserveFunc[MalformedCells]
 	CreateProtector      o11y.ObserveScopeFunc[util.Empty]
 	SyncProtector        o11y.ObserveScopeFunc[*podseidonv1a1.PodProtector]
 	DeleteProtector      o11y.ObserveScopeFunc[*podseidonv1a1.PodProtector]
@@ -77,6 +78,11 @@ type EndReconcile struct {
 	PprName string
 	Action  Action
 	Err     error
+}
+
+type MalformedCells struct {
+	Removed  int
+	Retained int
 }
 
 type Action string

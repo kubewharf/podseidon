@@ -68,6 +68,16 @@ func ProvideMetrics() component.Declared[Observer] {
 				metrics.IntCounter(),
 				metrics.NewReflectTags[actionTag](),
 			)
+			type malformedCellTags struct {
+				Disposition string
+			}
+			malformedCellHandle := metrics.Register(
+				deps.Registry(),
+				"generator_malformed_cells",
+				"Number of PodProtector cells with empty cell IDs processed by the generator.",
+				metrics.IntCounter(),
+				metrics.NewReflectTags[malformedCellTags](),
+			)
 			emitAction := func(ctx context.Context, action string) {
 				actionTypeHandle.Emit(1, actionTag{
 					ReconcileTags: ctx.Value(reconcileGvrKey{}).(ReconcileTags),
@@ -103,6 +113,14 @@ func ProvideMetrics() component.Declared[Observer] {
 						emitAction(ctx, "Dangling")
 					} else {
 						emitAction(ctx, "Finalizing")
+					}
+				},
+				MalformedCells: func(_ context.Context, arg MalformedCells) {
+					if arg.Removed != 0 {
+						malformedCellHandle.Emit(arg.Removed, malformedCellTags{Disposition: "Removed"})
+					}
+					if arg.Retained != 0 {
+						malformedCellHandle.Emit(arg.Retained, malformedCellTags{Disposition: "Retained"})
 					}
 				},
 				CreateProtector: func(ctx context.Context, _ util.Empty) (context.Context, context.CancelFunc) {

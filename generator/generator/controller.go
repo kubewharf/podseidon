@@ -251,15 +251,19 @@ func ReconcileItem(
 			reqmt := pair.Right.Left
 			currentPpr := pair.Right.Right
 
-			action, err := tryReconcile(
-				reconcileCtx,
-				obs,
-				pprClient,
-				sourceObject,
-				reqmt,
-				currentPpr,
-				&sourceFinalizerNeedsRemoval,
-			)
+			var action observer.Action
+			currentPpr, err = tryRemoveMalformedCells(reconcileCtx, obs, pprClient, currentPpr)
+			if err == nil {
+				action, err = tryReconcile(
+					reconcileCtx,
+					obs,
+					pprClient,
+					sourceObject,
+					reqmt,
+					currentPpr,
+					&sourceFinalizerNeedsRemoval,
+				)
+			}
 			if err != nil {
 				action = observer.ActionError
 			}
@@ -290,6 +294,73 @@ func ReconcileItem(
 	}
 
 	return nil
+}
+
+func tryRemoveMalformedCells(
+	ctx context.Context,
+	obs observer.Observer,
+	pprClient podseidonv1a1client.PodseidonV1alpha1Interface,
+	currentPpr optional.Optional[*podseidonv1a1.PodProtector],
+) (optional.Optional[*podseidonv1a1.PodProtector], error) {
+	if currentPpr.IsNone() {
+		return currentPpr, nil
+	}
+
+	current := currentPpr.MustGet("checked currentPpr.IsNone() above")
+	removed := 0
+	retained := 0
+
+	for _, cell := range current.Status.Cells {
+		if cell.CellId != "" {
+			continue
+		}
+
+		if isRemovableMalformedCell(cell) {
+			removed++
+		} else {
+			retained++
+		}
+	}
+
+	if removed == 0 {
+		if retained != 0 {
+			obs.MalformedCells(ctx, observer.MalformedCells{Retained: retained})
+		}
+		return currentPpr, nil
+	}
+
+	nextCells := make([]podseidonv1a1.PodProtectorCellStatus, 0, len(current.Status.Cells)-removed)
+	for _, cell := range current.Status.Cells {
+		if !isRemovableMalformedCell(cell) {
+			nextCells = append(nextCells, cell)
+		}
+	}
+
+	next := current.DeepCopy()
+	next.Status.Cells = nextCells
+
+	updated, err := pprClient.PodProtectors(next.Namespace).
+		UpdateStatus(ctx, next, metav1.UpdateOptions{})
+	if err != nil {
+		return currentPpr, errors.TagWrapf(
+			"RemoveMalformedCells",
+			err,
+			"remove zero-value cells with empty cell IDs from PodProtector status",
+		)
+	}
+
+	obs.MalformedCells(ctx, observer.MalformedCells{
+		Removed:  removed,
+		Retained: retained,
+	})
+
+	return optional.Some(updated), nil
+}
+
+func isRemovableMalformedCell(cell podseidonv1a1.PodProtectorCellStatus) bool {
+	return cell.CellId == "" &&
+		reflect.DeepEqual(cell.Aggregation, podseidonv1a1.PodProtectorAggregation{}) &&
+		len(cell.History.Buckets) == 0
 }
 
 //nolint:cyclop
